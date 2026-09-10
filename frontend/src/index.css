@@ -1,0 +1,60 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1a1a2e;
+  background: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html.electron-desktop body {
+  background: #1e1e1e;
+}
+
+html.electron-desktop body::before,
+html.electron-desktop body::after { display: none; }
+
+html.electron-desktop #root {
+  height: 100%;
+}
+
+html.electron-desktop .app-nav-frame,
+html.electron-desktop .chat-session-topbar,
+html.electron-desktop .note-editor-tabs,
+html.electron-desktop .sf-top-bar { -webkit-app-region: drag; }
+
+html.electron-desktop button,
+html.electron-desktop input,
+html.electron-desktop textarea,
+html.electron-desktop select,
+html.electron-desktop a { -webkit-app-region: no-drag; }
+
+:root {
+  --sidebar-width: 280px;
+  --topbar-height: 44px;
+  --border-color: #e5e7eb;
+  --hover-bg: #f3f4f6;
+  --active-bg: #ede9fe;
+  --active-color: #7c3aed;
+  --text-primary: #1f2937;
+  --text-secondary: #6b7280;
+  --text-muted: #9ca3af;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --radius: 8px;
+}

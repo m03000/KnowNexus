@@ -1,0 +1,19 @@
+# 把这一段合并到 ~/.codex/config.toml；项目后端需运行在 8001 端口。
+[mcp_servers.personal_agent]
+url = "http://127.0.0.1:8001/mcp/"
+enabled = true
+required = false
+default_tools_approval_mode = "writes"
+enabled_tools = [
+  "search_personal_knowledge",
+  "trace_memory",
+  "capture_external_turn",
+  "flush_external_memory",
+]
+
+# 只读检索和溯源无需每次确认；写入类工具仍遵循上面的 writes 策略。
+[mcp_servers.personal_agent.tools.search_personal_knowledge]
+approval_mode = "approve"
+
+[mcp_servers.personal_agent.tools.trace_memory]
+approval_mode = "approve"

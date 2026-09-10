@@ -1,0 +1,41 @@
+{
+  "description": "Automatically capture completed Codex turns into KnowNexus.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m study_help_agent.interfaces.hooks.codex_capture",
+            "commandWindows": "python -m study_help_agent.interfaces.hooks.codex_capture",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m study_help_agent.interfaces.hooks.codex_capture",
+            "commandWindows": "python -m study_help_agent.interfaces.hooks.codex_capture",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m study_help_agent.interfaces.hooks.codex_capture",
+            "commandWindows": "python -m study_help_agent.interfaces.hooks.codex_capture",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

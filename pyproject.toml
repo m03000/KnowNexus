@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "knownexus"
+version = "0.1.0"
+description = "A local-first AI knowledge workspace and memory graph desktop application"
+requires-python = ">=3.11"
+
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic>=2",
+    "pydantic-settings>=2",
+    "langgraph",
+    "langchain-openai",
+    "openai",
+    "jieba",
+    "numpy",
+    "qdrant-client",
+    "sentence-transformers",
+    "mcp>=1.26,<2",
+    "python-multipart>=0.0.9",
+    "zstandard>=0.23",
+]
+
+[project.scripts]
+personal-agent-codex-hook = "study_help_agent.interfaces.hooks.codex_capture:main"
+personal-agent-codex-watcher = "study_help_agent.integrations.adapters.codex.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+    "ruff",
+]
+learning-documents = [
+    "beautifulsoup4>=4.12",
+    "pillow>=10",
+    "pymupdf>=1.24",
+    "pypdf>=5",
+    "pytesseract>=0.3.13",
+    "python-docx>=1.2",
+]
+learning-media = [
+    "faster-whisper>=1.1",
+    "opencv-python-headless>=4.10",
+    "pillow>=10",
+    "pytesseract>=0.3.13",
+    "yt-dlp",
+]
+evaluation = [
+    "ragas>=0.4,<1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

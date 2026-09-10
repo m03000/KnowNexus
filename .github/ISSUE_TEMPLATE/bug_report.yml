@@ -1,0 +1,26 @@
+name: Bug report
+description: 报告可复现的问题
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: 问题描述
+      description: 请说明实际表现和预期表现。
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 复现步骤
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: KnowNexus 版本
+  - type: input
+    attributes:
+      label: Windows 版本
+  - type: textarea
+    attributes:
+      label: 日志或截图
+      description: 请先删除密钥、私人路径和个人内容。

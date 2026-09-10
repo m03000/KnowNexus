@@ -1,0 +1,62 @@
+{
+  "name": "knownexus-frontend",
+  "productName": "KnowNexus",
+  "version": "0.1.0",
+  "author": "KnowNexus Contributors",
+  "description": "Local-first AI knowledge workspace",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/m03000/KnowNexus.git"
+  },
+  "homepage": "https://github.com/m03000/KnowNexus",
+  "bugs": "https://github.com/m03000/KnowNexus/issues",
+  "main": "desktop/main.cjs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "desktop": "npm run build && electron desktop/main.cjs",
+    "desktop:run": "electron desktop/main.cjs",
+    "desktop:package": "npm run build && electron-builder --win --dir"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-force-graph-2d": "^1.29.1",
+    "react-force-graph-3d": "^1.29.1",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
+    "oxlint": "^1.71.0",
+    "vite": "^8.1.1"
+  },
+  "build": {
+    "appId": "io.knownexus.desktop",
+    "productName": "KnowNexus",
+    "copyright": "Copyright © 2026 KnowNexus Contributors",
+    "icon": "desktop/assets/knownexus-icon.ico",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "desktop/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "desktop/assets/knownexus-icon.ico",
+      "artifactName": "KnowNexus-${version}-Windows-${arch}.${ext}"
+    }
+  }
+}
