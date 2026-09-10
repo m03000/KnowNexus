@@ -121,6 +121,30 @@ class ExternalWatcherRegistry:
     def adapters(self) -> dict[str, Any]:
         return {"adapters": list(self._adapters.values())}
 
+    def history_parser(self, watcher_id: str):
+        """Return a parser only for a watcher the user configured and enabled."""
+        config = self._require(watcher_id)
+        if not config.enabled:
+            raise ValueError("该智能体监听尚未启用")
+        adapter = self._adapters.get(config.adapter_id)
+        if not adapter:
+            raise ValueError("智能体适配器不存在")
+        self._validate_sources(asdict(config), adapter)
+        root = Path(config.conversation_root)
+        if config.adapter_id == "workbuddy":
+            return WorkBuddyHistoryParser(Path(config.session_index_path).parent.parent,
+                index_path=Path(config.session_index_path), projects_root=root)
+        if config.adapter_id == "codex":
+            from study_help_agent.integrations.conversation_history import CodexHistoryParser
+            return CodexHistoryParser(root)
+        if config.adapter_id == "dsh":
+            return DshConversationParser(root)
+        if config.adapter_id == "trae":
+            return TraeConversationParser(root)
+        if config.adapter_id == "claude_code":
+            return ClaudeCodeConversationParser(root)
+        return GenericConversationParser(root, adapter.get("schema"), client=config.adapter_id)
+
     def generate_adapter(self, payload: dict[str, Any]) -> dict[str, Any]:
         name = str(payload.get("name") or "").strip()
         sample_path = str(payload.get("sample_path") or "").strip()
@@ -445,12 +469,7 @@ class ExternalWatcherRegistry:
             data = json.loads(self.config_path.read_text(encoding="utf-8"))
             return [WatcherConfig.from_dict(item) for item in data.get("watchers", [])]
         except (OSError, json.JSONDecodeError, TypeError):
-            default = WatcherConfig(id="codex-default", name="Codex", parser_type="codex",
-                adapter_id="codex", enabled=bool(self.settings.codex_watcher_enabled),
-                conversation_root=str(self.settings.codex_watcher_sessions_directory),
-                session_index_path=str(Path(self.settings.codex_watcher_sessions_directory).parent / "session_index.jsonl"),
-                memory_path=str(Path(self.settings.codex_watcher_sessions_directory).parent / "memories_1.sqlite"))
-            return [default]
+            return []
 
     def _save_configs(self) -> None:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)

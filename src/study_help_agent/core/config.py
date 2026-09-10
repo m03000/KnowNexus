@@ -44,7 +44,7 @@ class Settings(BaseSettings):
 
     # ---------- 应用配置 ----------
 
-    app_name: str = "KnowNexus"
+    app_name: str = "Study Help Agent"
     environment: str = "development"
     debug: bool = True
     cors_origins: list[str] = Field(
@@ -172,7 +172,7 @@ class Settings(BaseSettings):
     )
 
     note_export_directory: Path = Field(
-        default_factory=lambda: Path.home() / "Documents" / "KnowNexus" / "导出笔记",
+        default_factory=lambda: Path.home() / "Documents" / "AgentForge" / "导出笔记",
         description="AI 笔记导出的固定目录",
     )
 

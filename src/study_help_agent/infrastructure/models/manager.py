@@ -92,18 +92,9 @@ class ModelManager:
                     return data
             except (OSError, ValueError):
                 pass
-        default_id = "default"
-        return {
-            "active_provider_id": default_id,
-            "providers": [{
-                "provider_id": default_id,
-                "name": self._settings.llm_model,
-                "provider": "openai-compatible",
-                "api_key": self._settings.llm_api_key.get_secret_value(),
-                "base_url": self._settings.llm_base_url,
-                "model": self._settings.llm_model,
-            }],
-        }
+        # Never expose or silently import process/.env credentials into the UI.
+        # A provider exists only after the user explicitly saves one here.
+        return {"active_provider_id": "", "providers": []}
 
     def _save_catalog(self, catalog: dict[str, Any]) -> None:
         self._atomic_write(self._providers_path, json.dumps(catalog, ensure_ascii=False, indent=2) + "\n")

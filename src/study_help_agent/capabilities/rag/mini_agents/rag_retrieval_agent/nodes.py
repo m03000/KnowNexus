@@ -189,7 +189,10 @@ class RetrievalGraphNodes:
         graph_results = state.get("graph_results", [])
         if graph_results:
             channels.append(graph_results)
-        fused = self._fusion.fuse(channels, state["recall_k"])
+        # Wiki/graph evidence expands concepts and points back to sources, so it
+        # assists the two primary chunk channels without dominating them.
+        weights = [1.0, 1.0] + ([0.7] if graph_results else [])
+        fused = self._fusion.fuse(channels, state["recall_k"], weights=weights)
         return {"fused_results": fused, "warnings": warnings}
 
     def rerank_results(self, state: RetrievalState) -> dict:

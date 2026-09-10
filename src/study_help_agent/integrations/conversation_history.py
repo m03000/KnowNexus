@@ -29,15 +29,17 @@ class HistorySession:
 
 class ExternalHistoryService:
     """选择平台解析器并提供统一列表、预览和导入能力。"""
-    def __init__(self, *, codex_root: Path, capture_service) -> None:
+    def __init__(self, *, capture_service, parsers: dict[str, Any] | None = None,
+                 codex_root: Path | None = None) -> None:
         self._capture_service = capture_service
-        self._parsers = {
-            "codex": CodexHistoryParser(codex_root),
-            "workbuddy": WorkBuddyHistoryParser(Path.home() / ".workbuddy"),
-        }
+        self._parsers = {key.strip().casefold(): value for key, value in (parsers or {}).items()}
+        # Compatibility for internal callers/tests only. Public APIs always pass an
+        # explicitly configured parser map and never probe a home directory.
+        if codex_root is not None and not self._parsers:
+            self._parsers["codex"] = CodexHistoryParser(codex_root)
 
     def list_sessions(self, *, client: str, limit: int = 30) -> list[dict[str, Any]]:
-        return [item.to_dict() for item in self._parser(client).list_sessions(limit=limit)]
+        return [{**item.to_dict(), "client": client} for item in self._parser(client).list_sessions(limit=limit)]
 
     def preview(self, *, client: str, session_id: str, limit: int = 20) -> dict[str, Any]:
         turns = self._parser(client).load_session(session_id)
@@ -104,19 +106,8 @@ class CodexHistoryParser:
                     continue
                 if captured is None:
                     continue
-                thread_source = str(
-                    captured.metadata.get("codex_thread_source") or ""
-                ).casefold()
-                session_source = str(
-                    captured.metadata.get("codex_session_source") or ""
-                ).casefold()
-                if (
-                    thread_source == "subagent"
-                    or session_source == "subagent"
-                    or captured.prompt.casefold().startswith(
-                        "the following is the codex agent history"
-                    )
-                ):
+                source = str(captured.metadata.get("codex_thread_source") or "").casefold()
+                if source == "subagent" or captured.prompt.casefold().startswith("the following is the codex agent history"):
                     continue
                 result.append(ExternalConversationTurn(
                     client="codex", external_session_id=captured.session_id,

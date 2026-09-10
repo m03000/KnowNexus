@@ -16,7 +16,6 @@ $requiredPaths = @(
     "models\whisper-small",
     "source-code\README.md",
     "使用说明.txt"
-    "Start KnowNexus.exe"
 )
 foreach ($relativePath in $requiredPaths) {
     if (-not (Test-Path -LiteralPath (Join-Path $PortableDirectory $relativePath))) {

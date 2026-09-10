@@ -4036,12 +4036,12 @@ function StarfieldApp({
             <div className="sf-history-toolbar">
               <select value={historyClient} onChange={(event) => {
                 const client = event.target.value; setHistoryClient(client); setHistorySessions([]); setHistorySelectedSession(null); setHistoryPreview(null); setHistoryMessage(''); if (client) loadHistorySessions(client);
-              }}><option value="">选择来源智能体</option><option value="codex">Codex</option><option value="workbuddy">WorkBuddy</option></select>
+              }}><option value="">选择已启用的智能体</option>{(watcherStatus?.watchers || []).filter((watcher) => watcher.enabled).map((watcher) => <option key={watcher.id} value={watcher.id}>{watcher.name}</option>)}</select>
               {historyClient && <button onClick={() => loadHistorySessions(historyClient)}>刷新会话</button>}
               {historySelectedSession && <button className="primary" onClick={previewHistorySession} disabled={historyLoading}>查询对话</button>}
             </div>
             {historyMessage && <p className="sf-history-message">{historyMessage}</p>}
-            {!historyClient && <div className="sf-history-empty">请选择需要导入的来源智能体。</div>}
+            {!historyClient && <div className="sf-history-empty">{(watcherStatus?.watchers || []).some((watcher) => watcher.enabled) ? '请选择需要导入的来源智能体。' : '暂无已配置并启用的智能体，请先到设置 · 智能体监听中添加并启用。'}</div>}
             {historyClient && !historyPreview && <div className="sf-history-list">
               {historyLoading && !historySessions.length ? <p>正在扫描历史会话…</p> : historySessions.map((session) => (
                 <article className={historySelectedSession?.session_id === session.session_id ? 'selected' : ''} key={`${session.client}:${session.session_id}`} onClick={() => { setHistorySelectedSession(session); setHistoryMessage(''); }}>

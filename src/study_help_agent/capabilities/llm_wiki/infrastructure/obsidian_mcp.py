@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import threading
 from dataclasses import dataclass, asdict, field
@@ -58,10 +59,15 @@ class StdioMcpClient:
 
     def _start(self):
         vault = str(Path(self.config.vault_path).expanduser().resolve())
-        command = ["npx.cmd" if os.name == "nt" else "npx", "-y", self.config.package,
+        npx = shutil.which("npx.cmd" if os.name == "nt" else "npx")
+        if not npx:
+            raise RuntimeError("未检测到 npx；连接测试不会自动下载 MCP，请先手动安装")
+        command = [npx, "--offline", "--yes", self.config.package,
                    "serve", "--vault", f"notes={vault}"]
+        environment = {**os.environ, "npm_config_offline": "true", "npm_config_prefer_offline": "true"}
         return subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+            env=environment,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
 
     @staticmethod
@@ -92,7 +98,7 @@ class StdioMcpClient:
         try:
             self._send(process, {"jsonrpc":"2.0","id":1,"method":"initialize","params":{
                 "protocolVersion":"2024-11-05","capabilities":{},
-                "clientInfo":{"name":"KnowNexus","version":"1"}}})
+                "clientInfo":{"name":"AgentForge","version":"1"}}})
             self._receive(process, 1)
             self._send(process, {"jsonrpc":"2.0","method":"notifications/initialized","params":{}})
             self._send(process, {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}})
@@ -107,7 +113,7 @@ class StdioMcpClient:
         try:
             self._send(process, {"jsonrpc":"2.0","id":1,"method":"initialize","params":{
                 "protocolVersion":"2024-11-05","capabilities":{},
-                "clientInfo":{"name":"KnowNexus","version":"1"}}})
+                "clientInfo":{"name":"AgentForge","version":"1"}}})
             self._receive(process, 1)
             self._send(process, {"jsonrpc":"2.0","method":"notifications/initialized","params":{}})
             self._send(process, {"jsonrpc":"2.0","id":3,"method":"tools/call",
@@ -165,7 +171,7 @@ class ObsidianMcpPublisher:
             folder = {"topic":"10 Topics", "concept":"20 Concepts", "synthesis":"30 Syntheses", "source":"40 Sources"}.get(str(page.get("page_type")), "40 Sources")
             path = f"{config.wiki_folder.strip('/')}/{folder}/{page['slug']}.md"
             body = re.sub(r"\[([^]]+)\]\(wiki://(?:page|slug)/[^)]+\)", r"[[\1]]", str(page.get("body_markdown") or ""))
-            frontmatter = ("---\n" f"wiki_id: \"{page.get('page_id','')}\"\n" f"page_type: {page.get('page_type','source')}\n" "managed_by: KnowNexus\n" "---\n\n")
+            frontmatter = ("---\n" f"wiki_id: \"{page.get('page_id','')}\"\n" f"page_type: {page.get('page_type','source')}\n" "managed_by: AgentForge\n" "---\n\n")
             args: dict[str, Any] = {}
             for key in schema:
                 low = key.casefold()
