@@ -234,7 +234,18 @@ class SqliteConversationContextRepository:
                        COALESCE(turn_record.origin_type, conversation.origin_type,
                                 'internal') AS origin_type,
                        COALESCE(turn_record.origin_client, conversation.origin_client,
-                                'personal_agent') AS origin_client
+                                'personal_agent') AS origin_client,
+                       conversation.distilled_until_message_id,
+                       CASE
+                         WHEN turn_record.assistant_message_id <= conversation.distilled_until_message_id THEN 'distilled'
+                         WHEN EXISTS (
+                           SELECT 1 FROM memory_processing_leases lease
+                           WHERE lease.session_id = turn_record.session_id
+                             AND lease.purpose = 'long_consolidation'
+                             AND lease.expires_at > CAST(strftime('%s', 'now') AS INTEGER)
+                         ) THEN 'processing'
+                         ELSE 'pending'
+                       END AS distillation_status
                 FROM conversation_turns turn_record
                 JOIN messages user_message
                   ON user_message.message_id = turn_record.user_message_id

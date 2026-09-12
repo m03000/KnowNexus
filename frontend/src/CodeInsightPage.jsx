@@ -123,7 +123,7 @@ function CodeInsightPage({
   apiBase = '/api/library/code-projects',
   agentApi = '/api/agent/chat',
 }) {
-  const [projectPath, setProjectPath] = useState('D:\\Code\\my-agent');
+  const [projectPath, setProjectPath] = useState('');
   const [projects, setProjects] = useState([]);
   const [project, setProject] = useState(EMPTY_PROJECT);
   const [selectedFile, setSelectedFile] = useState(null);

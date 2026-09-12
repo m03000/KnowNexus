@@ -75,6 +75,8 @@ def register_system_routes(
     async def health_check() -> dict[str, str]:
         return {
             "status": "ok",
+            "app": "KnowNexus",
+            "version": app.version,
         }
 
 

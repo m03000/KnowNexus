@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { consumeSse } from './api/sseClient.js';
 
 const createId = () => globalThis.crypto?.randomUUID?.() || `agent-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-const traceStorageKey = (sessionId) => `personal-agent:chat-trace:${sessionId}`;
+const traceStorageKey = (sessionId) => `knownexus:chat-trace:${sessionId}`;
 const thinkingPhrases = ['正在把线索排成队', '正在翻阅记忆抽屉', '正在和答案碰头', '快好了，再理一遍'];
 
 function initialConversationMessages(sessionId, initialMessages) {
@@ -66,11 +66,14 @@ function AIChatPanel({
   }, [apiBase]);
 
   useEffect(() => {
-    fetch(`${apiBase}/api/settings/models`).then((response) => response.ok ? response.json() : null).then((data) => {
+    const loadModels = () => fetch(`${apiBase}/api/settings/models`).then((response) => response.ok ? response.json() : null).then((data) => {
       if (!data) return;
       setModelOptions(data.providers || []);
       setSelectedModel(data.active_provider_id || data.providers?.[0]?.provider_id || '');
     }).catch(() => {});
+    loadModels();
+    window.addEventListener('knownexus:model-providers-changed', loadModels);
+    return () => window.removeEventListener('knownexus:model-providers-changed', loadModels);
   }, [apiBase]);
 
   const selectModel = async (providerId) => {
@@ -80,6 +83,7 @@ function AIChatPanel({
     try {
       const response = await fetch(`${apiBase}/api/settings/models/${encodeURIComponent(providerId)}/activate`, { method: 'POST' });
       if (!response.ok) throw new Error('切换失败');
+      window.dispatchEvent(new Event('knownexus:model-providers-changed'));
     } catch {
       setSelectedModel(previous);
     }

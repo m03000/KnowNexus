@@ -31,6 +31,16 @@ def save_configuration(request: ModelConfigurationUpdate, manager: Manager):
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+@router.post("/test")
+def test_configuration(request: ModelConfigurationUpdate, manager: Manager):
+    try:
+        return manager.test_configuration(request.model_dump())
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f"模型连接失败：{error}") from error
+
+
 @router.get("/retrieval")
 def get_retrieval_models(manager: Manager):
     return manager.retrieval_models()
@@ -44,6 +54,14 @@ def install_retrieval_model(kind: str, manager: Manager):
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(status_code=502, detail=f"模型下载失败：{error}") from error
+
+
+@router.post("/retrieval/{kind}/test")
+def test_retrieval_model(kind: str, manager: Manager):
+    try:
+        return manager.test_retrieval_model(kind)
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"本地模型测试失败：{error}") from error
 
 
 @router.post("/{provider_id}/activate")

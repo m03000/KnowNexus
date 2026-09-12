@@ -139,6 +139,9 @@ function Settings({ open, close, appearance, cardOpacity, theme, setTheme, initi
   const [retrievalModels, setRetrievalModels] = useState({ models: [], ready: false });
   const [installingModel, setInstallingModel] = useState('');
   const [retrievalMessage, setRetrievalMessage] = useState('');
+  const [platformAuth, setPlatformAuth] = useState({ configured: false, cookie_count: 0, domains: [], message: '尚未导入平台 Cookie' });
+  const [platformAuthBusy, setPlatformAuthBusy] = useState(false);
+  const [platformAuthMessage, setPlatformAuthMessage] = useState('');
   const updateModel = (key, value) => setModelDraft((current) => ({ ...current, [key]: value }));
   useEffect(() => {
     if (!open || section !== 'models') return;
@@ -151,20 +154,32 @@ function Settings({ open, close, appearance, cardOpacity, theme, setTheme, initi
     if (open) setSection(initialSection);
   }, [open, initialSection]);
   const loadBasicConfiguration = useCallback(async () => {
-    const [obsidianResponse, modelsResponse] = await Promise.all([
+    const [obsidianResponse, modelsResponse, platformAuthResponse] = await Promise.all([
       fetch(`${API_BASE}/api/settings/obsidian-wiki`),
       fetch(`${API_BASE}/api/settings/models/retrieval`),
+      fetch(`${API_BASE}/api/settings/platform-auth`),
     ]);
-    if (!obsidianResponse.ok || !modelsResponse.ok) throw new Error('读取基础配置失败');
+    if (!obsidianResponse.ok || !modelsResponse.ok || !platformAuthResponse.ok) throw new Error('读取基础配置失败');
     const wiki = await obsidianResponse.json();
     const activeVault = (wiki.vaults || []).find((item) => item.id === wiki.active_vault_id);
     setObsidian({ ...wiki, vault_id: wiki.active_vault_id || '', vault_name: activeVault?.name || '' });
     setRetrievalModels(await modelsResponse.json());
+    setPlatformAuth(await platformAuthResponse.json());
   }, []);
   useEffect(() => {
     if (!open || section !== 'basic') return;
     loadBasicConfiguration().catch((error) => setRetrievalMessage(error.message));
   }, [open, section]);
+  useEffect(() => {
+    if (!open || section !== 'basic' || !['embedding', 'reranker'].includes(installingModel)) return undefined;
+    const timer = window.setInterval(() => {
+      fetch(`${API_BASE}/api/settings/models/retrieval`)
+        .then((response) => response.ok ? response.json() : null)
+        .then((value) => { if (value) setRetrievalModels(value); })
+        .catch(() => {});
+    }, 650);
+    return () => window.clearInterval(timer);
+  }, [open, section, installingModel]);
   const saveVault = async (draft = obsidian) => {
     if (!draft.vault_name?.trim() || !draft.vault_path?.trim()) { setObsidianMessage('请填写 Vault 名称和地址'); return false; }
     setObsidianMessage('正在保存…');
@@ -223,6 +238,29 @@ function Settings({ open, close, appearance, cardOpacity, theme, setTheme, initi
     finally { setObsidianBusy(false); }
   };
   const prepareNewVault = () => setVaultDraft({ vault_id: '', vault_name: '', vault_path: '', wiki_folder: 'AgentWiki' });
+  const importPlatformCookies = async () => {
+    if (!window.desktopAPI?.pickCookieFile) { setPlatformAuthMessage('当前环境不支持 Cookie 文件选择'); return; }
+    const selected = await window.desktopAPI.pickCookieFile();
+    if (!selected?.sourcePath) return;
+    setPlatformAuthBusy(true); setPlatformAuthMessage('正在校验并导入 Cookie…');
+    try {
+      const response = await fetch(`${API_BASE}/api/settings/platform-auth/import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_path: selected.sourcePath }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || 'Cookie 导入失败');
+      setPlatformAuth(data); setPlatformAuthMessage('导入成功，后续平台视频会优先使用这份登录凭证。');
+    } catch (error) { setPlatformAuthMessage(error.message); }
+    finally { setPlatformAuthBusy(false); }
+  };
+  const clearPlatformCookies = async () => {
+    setPlatformAuthBusy(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/settings/platform-auth`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || '清除失败');
+      setPlatformAuth(data); setPlatformAuthMessage('本机保存的平台 Cookie 已清除。');
+    } catch (error) { setPlatformAuthMessage(error.message); }
+    finally { setPlatformAuthBusy(false); }
+  };
   const installRetrievalModel = async (kind) => {
     setInstallingModel(kind); setRetrievalMessage('正在下载模型，请保持网络连接…');
     try {
@@ -233,14 +271,31 @@ function Settings({ open, close, appearance, cardOpacity, theme, setTheme, initi
     } catch (error) { setRetrievalMessage(error.message); }
     finally { setInstallingModel(''); }
   };
+  const testRetrievalModel = async (kind) => {
+    setInstallingModel(`test-${kind}`); setRetrievalMessage('正在本地加载模型并执行真实推理，首次测试可能需要一些时间…');
+    try {
+      const response = await fetch(`${API_BASE}/api/settings/models/retrieval/${kind}/test`, { method: 'POST' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || '模型测试失败');
+      setRetrievalModels(data); setRetrievalMessage(data.test.message);
+    } catch (error) { setRetrievalMessage(error.message); }
+    finally { setInstallingModel(''); }
+  };
   const saveModels = async () => {
     setModelMessage('正在保存…');
     const response = await fetch(`${API_BASE}/api/settings/models`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider_id: modelDraft.providerId, name: modelDraft.name, provider: modelDraft.provider, api_key: modelDraft.apiKey, base_url: modelDraft.baseUrl, model: modelDraft.model }) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) { setModelMessage(data.detail || '保存失败'); return; }
-    setModelMessage('供应商已保存并设为默认模型，重启后端后完全生效。');
+    setModelMessage('供应商已保存并设为默认模型，现在即可使用。');
     setModelRuntime({ providers: data.providers || [], activeProviderId: data.active_provider_id || '' });
+    window.dispatchEvent(new Event('knownexus:model-providers-changed'));
     setModelDraft(emptyProvider); setEditingProvider(false);
+  };
+  const testModels = async () => {
+    setModelMessage('正在连接模型服务…');
+    const response = await fetch(`${API_BASE}/api/settings/models/test`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider_id: modelDraft.providerId, name: modelDraft.name, provider: modelDraft.provider, api_key: modelDraft.apiKey, base_url: modelDraft.baseUrl, model: modelDraft.model }) });
+    const data = await response.json().catch(() => ({}));
+    setModelMessage(response.ok ? data.message : (data.detail || '连接测试失败'));
   };
   const editProvider = (provider) => { setModelDraft({ providerId: provider.provider_id, name: provider.name, provider: provider.provider, apiKey: '', baseUrl: provider.base_url, model: provider.model }); setEditingProvider(true); setModelMessage(''); };
   if (!open) return null;
@@ -256,13 +311,14 @@ function Settings({ open, close, appearance, cardOpacity, theme, setTheme, initi
       {section === 'models' && <div className="model-settings-content">
         <div className="model-settings-intro"><div><strong>模型</strong><p>配置 OpenAI 兼容供应商的 API 密钥、接口地址和模型名称。</p></div></div>
         {!editingProvider && <div className="provider-list">{modelRuntime.providers.map((provider) => <article key={provider.provider_id} className={provider.provider_id === modelRuntime.activeProviderId ? 'active' : ''}><div><strong>{provider.name}</strong><small>{provider.model}</small></div><span>{provider.provider_id === modelRuntime.activeProviderId ? '当前默认' : provider.api_key_configured ? '已配置' : '待配置'}</span><button type="button" onClick={() => editProvider(provider)}>编辑</button></article>)}<button type="button" className="add-provider" onClick={() => { setModelDraft(emptyProvider); setEditingProvider(true); }}>＋ 添加供应商</button></div>}
-        {editingProvider && <div className="model-settings-form provider-editor"><div className="model-settings-pair"><label><span>显示名称</span><input value={modelDraft.name} onChange={(event) => updateModel('name', event.target.value)} placeholder="例如 DeepSeek" /></label><label><span>供应商类型</span><select value={modelDraft.provider} onChange={(event) => updateModel('provider', event.target.value)}><option value="openai-compatible">OpenAI 兼容</option><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="siliconflow">硅基流动</option><option value="custom">自定义</option></select></label></div><label><span>API Key</span><input type="password" value={modelDraft.apiKey} onChange={(event) => updateModel('apiKey', event.target.value)} placeholder={modelDraft.providerId ? '已配置；留空保持原密钥' : '输入 API Key'} autoComplete="off" /></label><label><span>Base URL</span><input value={modelDraft.baseUrl} onChange={(event) => updateModel('baseUrl', event.target.value)} placeholder="https://api.example.com/v1" /></label><label><span>模型名称</span><input value={modelDraft.model} onChange={(event) => updateModel('model', event.target.value)} placeholder="例如 deepseek-chat" /></label><div className="model-settings-actions"><span>{modelMessage}</span><div><button type="button" className="secondary" onClick={() => { setEditingProvider(false); setModelMessage(''); }}>取消</button><button type="button" onClick={saveModels}>保存并设为默认</button></div></div></div>}
+        {editingProvider && <div className="model-settings-form provider-editor"><div className="model-settings-pair"><label><span>显示名称</span><input value={modelDraft.name} onChange={(event) => updateModel('name', event.target.value)} placeholder="例如 DeepSeek" /></label><label><span>供应商类型</span><select value={modelDraft.provider} onChange={(event) => updateModel('provider', event.target.value)}><option value="openai-compatible">OpenAI 兼容</option><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="siliconflow">硅基流动</option><option value="custom">自定义</option></select></label></div><label><span>API Key</span><input type="password" value={modelDraft.apiKey} onChange={(event) => updateModel('apiKey', event.target.value)} placeholder={modelDraft.providerId ? '已配置；留空保持原密钥' : '输入 API Key'} autoComplete="off" /></label><label><span>Base URL</span><input value={modelDraft.baseUrl} onChange={(event) => updateModel('baseUrl', event.target.value)} placeholder="https://api.example.com/v1" /></label><label><span>模型名称</span><input value={modelDraft.model} onChange={(event) => updateModel('model', event.target.value)} placeholder="例如 deepseek-chat" /></label><div className="model-settings-actions"><span>{modelMessage}</span><div><button type="button" className="secondary" onClick={() => { setEditingProvider(false); setModelMessage(''); }}>取消</button><button type="button" className="secondary" onClick={testModels}>测试连接</button><button type="button" onClick={saveModels}>保存并设为默认</button></div></div></div>}
         {!editingProvider && <p className="model-settings-notice">API Key 仅保存在本机配置文件中，不写入浏览器存储。Embedding 与 Reranker 继续使用应用内置模型。</p>}
       </div>}
       {section === 'basic' && <div className="model-settings-content basic-configuration"><div className="model-settings-intro"><div><strong>基础配置</strong><p>{setupFocus === 'models' ? '首次使用需先安装两个必要的本地检索模型。' : setupFocus === 'wiki' ? '加入笔记界面前，请创建 Wiki 并加载 Obsidian MCP。' : '管理本地检索模型与 Obsidian Wiki。'}</p></div><span>{retrievalModels.ready ? '模型已就绪' : '需要安装模型'}</span></div>
-        <section className={`basic-setup-card ${setupFocus === 'models' ? 'required' : ''}`}><header><div><b>1</b><div><strong>本地检索模型</strong><p>当前版本固定使用以下两个模型，暂不启用降级策略。</p></div></div><span>{retrievalModels.ready ? '已完成' : '首次使用必需'}</span></header><div className="local-model-cards">{(retrievalModels.models || []).map((model) => <article key={model.kind}><div><strong>{model.kind === 'embedding' ? 'Embedding' : 'Reranker'}</strong><p>{model.model_id}</p><small>{model.installed ? `已安装${model.size_bytes ? ` · ${(model.size_bytes / 1024 / 1024).toFixed(0)} MB` : ''}` : '尚未安装'}</small></div><button type="button" disabled={model.installed || Boolean(installingModel)} onClick={() => installRetrievalModel(model.kind)}>{installingModel === model.kind ? '下载中…' : model.installed ? '已就绪' : '下载并安装'}</button></article>)}</div>{retrievalMessage && <p className="basic-setup-message">{retrievalMessage}</p>}</section>
+<section className={`basic-setup-card ${setupFocus === 'models' ? 'required' : ''}`}><header><div><b>1</b><div><strong>本地检索模型</strong><p>当前版本固定使用以下两个模型，暂不启用降级策略。</p></div></div><span>{retrievalModels.ready ? '已完成' : '首次使用必需'}</span></header><div className="local-model-cards">{(retrievalModels.models || []).map((model) => { const isDownloading = installingModel === model.kind || model.downloading; const progress = Math.max(0, Math.min(100, Number(model.download_progress || 0) * 100)); return <article key={model.kind}><div className="local-model-copy"><strong>{model.kind === 'embedding' ? 'Embedding' : 'Reranker'}</strong><p>{model.model_id}</p><small style={{ display: 'block', overflowWrap: 'anywhere' }}>存储位置：{model.cache_directory}</small><small>{model.installed ? `已安装${model.size_bytes ? ` · ${(model.size_bytes / 1024 / 1024).toFixed(0)} MB` : ''}` : isDownloading ? '正在下载模型文件' : '尚未安装'}</small>{isDownloading && <div className="local-model-progress" role="progressbar" aria-label={`${model.model_id} 下载进度`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(progress)}><span style={{ width: `${progress}%` }}/></div>}</div><div className="local-model-actions"><button type="button" className="secondary" disabled={Boolean(installingModel)} onClick={() => testRetrievalModel(model.kind)}>{installingModel === `test-${model.kind}` ? '测试中…' : '测试模型'}</button><button type="button" disabled={model.installed || Boolean(installingModel)} onClick={() => installRetrievalModel(model.kind)}>{isDownloading ? '下载中…' : model.installed ? '已下载' : '下载并安装'}</button></div></article>; })}</div>{retrievalMessage && <p className="basic-setup-message">{retrievalMessage}</p>}</section>
+        <section className="basic-setup-card platform-auth-card"><header><div><b>2</b><div><strong>平台视频凭证</strong><p>导入浏览器导出的 cookies.txt，用于读取需要登录的抖音、B站等平台内容。</p></div></div><span>{platformAuth.configured ? '凭证可用' : '按需配置'}</span></header><div className="platform-auth-row"><div><strong>{platformAuth.configured ? '已保存登录凭证' : '尚未导入 Cookie 文件'}</strong><p>{platformAuth.message}</p>{platformAuth.configured && <small>{(platformAuth.domains || []).length ? `包含域名：${platformAuth.domains.join('、')}` : '已通过 Netscape 格式校验'}</small>}</div><div className="platform-auth-actions">{platformAuth.configured && <button type="button" className="secondary" disabled={platformAuthBusy} onClick={clearPlatformCookies}>清除</button>}<button type="button" disabled={platformAuthBusy} onClick={importPlatformCookies}>{platformAuthBusy ? '处理中…' : platformAuth.configured ? '刷新 Cookie' : '导入 Cookie'}</button></div></div>{platformAuthMessage && <p className="basic-setup-message">{platformAuthMessage}</p>}<p className="platform-auth-warning">凭证仅保存在本机 data/platform_auth，不会进入源码或发布压缩包。Cookie 失效后重新导出并点击“刷新 Cookie”即可。</p></section>
         <section className={`basic-setup-card obsidian-setup-card ${setupFocus === 'wiki' ? 'required' : ''}`}>
-          <header><div><b>2</b><div><strong>Obsidian Wiki / MCP</strong><p>可创建并保存多个 Vault，启动前在这里选择当前使用地址。</p></div></div><span>{obsidian.connected ? `已验证 · ${obsidian.tool_count || 0} 工具` : '按需配置'}</span></header>
+          <header><div><b>3</b><div><strong>Obsidian Wiki / MCP</strong><p>可创建并保存多个 Vault，启动前在这里选择当前使用地址。</p></div></div><span>{obsidian.connected ? `已验证 · ${obsidian.tool_count || 0} 工具` : '按需配置'}</span></header>
           <div className="vault-command-bar">
             <strong>Obsidian MCP</strong>
             <span className={obsidian.connected ? 'connected' : ''}><i/>{obsidian.connected ? '已连接' : '未连接'}</span>
@@ -452,18 +508,28 @@ function HomeDashboard({ apiBase }) {
         fetch(`${apiBase}/api/memory-maintenance/conflicts`),
         fetch(`${apiBase}/api/memory-maintenance/wiki-workspace`),
         fetch(`${apiBase}/api/integrations/codex-watcher/statistics`),
+        fetch(`${apiBase}/api/integrations/codex-watcher`),
       ]);
       const values = await Promise.all(responses.map((response) => response.ok ? response.json() : {}));
-      if (live) setData({ watchers: values[0].watchers || [], historyWatchers: values[7].watchers || [], notes: values[1], wiki: values[2], wikiStats: values[3], maintenance: values[4], conflicts: values[5].conflicts || [], workspace: values[6] || { topics: [], slots: [] } });
+      const enabledWatcherIds = new Set((values[8].watchers || []).filter((watcher) => watcher.enabled).map((watcher) => watcher.id));
+      if (live) setData({ watchers: (values[0].watchers || []).filter((watcher) => enabledWatcherIds.has(watcher.id)), historyWatchers: (values[7].watchers || []).filter((watcher) => enabledWatcherIds.has(watcher.id)), notes: values[1], wiki: values[2], wikiStats: values[3], maintenance: values[4], conflicts: values[5].conflicts || [], workspace: values[6] || { topics: [], slots: [] } });
     };
     load().catch(() => {}); const timer = window.setInterval(() => load().catch(() => {}), 5000);
     return () => { live = false; window.clearInterval(timer); };
   }, [apiBase]);
-  const externalAgents = data.historyWatchers.slice(0, 3);
+  // Only render sources returned by the backend. A clean portable build must not
+  // manufacture placeholder agents or make an empty installation look populated.
+  const realAgents = data.historyWatchers.filter((agent) => agent.enabled !== false).slice(0, 3);
+  const internalAgent = data.maintenance.internal_agent || { id: 'internal-conversation', name: '内部对话', adapter_id: 'personal_agent', running: true };
   const agents = [
-    ...externalAgents,
-    ...Array.from({ length: Math.max(0, 3 - externalAgents.length) }, (_, index) => ({ id: `reserved-${index}`, name: '待接入智能体', adapter_id: 'reserved', running: false })),
-    { id: 'internal', name: '内部对话', adapter_id: 'personal_agent', conversation_count: 0, captured_turns: 0, distillation_tokens: 0, memory_points: 0, relations: 0, running: true },
+    ...realAgents,
+    ...Array.from({ length: Math.max(0, 3 - realAgents.length) }, (_, index) => ({
+      id: `reserved-agent-${index}`,
+      name: '待接入智能体',
+      adapter_id: 'reserved',
+      running: false,
+    })),
+    internalAgent,
   ];
   const listeningTime = (seconds = 0) => {
     const total = Math.max(0, Number(seconds) || 0);
@@ -491,14 +557,21 @@ function HomeDashboard({ apiBase }) {
     ['AI 笔记', library.ai_notes?.count || 0],
     ['导入笔记', library.personal_documents?.imported || 0],
   ];
+  const realSourceSlots = data.watchers.filter((agent) => agent.enabled !== false).slice(0, 3);
+  const internalToday = data.maintenance.internal_agent_today || { id: 'internal-conversation-today', name: '内部对话', adapter_id: 'personal_agent', running: true };
   const sourceSlots = [
-    ...data.watchers.slice(0, 4),
-    ...Array.from({ length: Math.max(0, 4 - data.watchers.length) }, (_, index) => ({ id: `memory-source-${index}`, name: '待接入智能体', conversation_count: 0, running: false })),
+    ...realSourceSlots,
+    ...Array.from({ length: Math.max(0, 3 - realSourceSlots.length) }, (_, index) => ({
+      id: `memory-source-${index}`,
+      name: '待接入智能体',
+      running: false,
+    })),
+    internalToday,
   ];
   const totalMemoryPoints = Number(data.maintenance.memory_points || 0);
   const totalRelations = Number(data.maintenance.relations || 0);
-  const totalTokens = data.watchers.reduce((sum, agent) => sum + Number(agent.distillation_tokens || 0), 0);
-  const totalTurns = data.watchers.reduce((sum, agent) => sum + Number(agent.captured_turns || 0), 0);
+  const totalTokens = data.watchers.reduce((sum, agent) => sum + Number(agent.distillation_tokens || 0), 0) + Number(internalToday.distillation_tokens || 0);
+  const totalTurns = data.watchers.reduce((sum, agent) => sum + Number(agent.captured_turns || 0), 0) + Number(internalToday.captured_turns || 0);
   const dailySummaries = data.maintenance.summary?.items || [];
   const summaryColumns = [[], []];
   const summaryColumnWeights = [0, 0];
@@ -567,7 +640,7 @@ function HomeDashboard({ apiBase }) {
           <div className="memory-detail-title"><div><h2>记忆整理</h2></div></div>
           <div className="memory-conflict-section"><header><strong>处理冲突记忆</strong><span>{data.conflicts.length} 组</span></header>{data.conflicts.length ? <div className="memory-conflict-list">{data.conflicts.map((item) => <article key={item.relation_id}><div><section><strong>记忆 A</strong><p>{item.source_content}</p><button type="button" onClick={() => resolveConflict(item.relation_id, 'source')}>采纳 A</button></section><section><strong>记忆 B</strong><p>{item.target_content}</p><button type="button" onClick={() => resolveConflict(item.relation_id, 'target')}>采纳 B</button></section></div></article>)}</div> : <div className="memory-empty-conflict"><p>暂无待处理冲突。</p></div>}</div>
           <div className="memory-summary-section"><button type="button" className="summary-resize-handle" aria-label="拖动调整今日总结高度" onPointerDown={startSummaryResize}/><header><strong>今日总结</strong><span>{dailySummaries.length} 条</span></header><div className="memory-summary-columns">{summaryColumns.map((column, columnIndex) => <div className="memory-summary-column" key={columnIndex}>{column.map((item) => <article key={item.title}><span>{String(item.displayIndex).padStart(2, '0')}</span><div><strong>{item.title}</strong><p>{item.content}</p></div></article>)}</div>)}</div></div>
-        </section> : <section className="memory-agents-panel"><header><strong>智能体信息</strong><span>{agents.length} 个来源</span></header><div className="memory-agent-grid">{agents.map((agent) => <article className="memory-agent-card" key={agent.id}><header><i className={agent.running ? 'running' : ''}/><strong>{agent.name}</strong></header><dl>{agentMetrics(agent).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></article>)}</div></section>}
+        </section> : <section className="memory-agents-panel"><header><strong>智能体信息</strong><span>{realAgents.length + 1} 个来源</span></header><div className="memory-agent-grid">{agents.map((agent) => <article className="memory-agent-card" key={agent.id}><header><i className={agent.running ? 'running' : ''}/><strong>{agent.name}</strong></header><dl>{agentMetrics(agent).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></article>)}</div></section>}
       </> : <>
         <section className="memory-overview-panel wiki-overview-panel">
           <div className="wiki-head"><div className="wiki-heading-block"><span>当前 Vault · LLM Wiki</span><h3 title={wikiName}>LLM {wikiName}</h3></div>

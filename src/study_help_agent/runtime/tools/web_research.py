@@ -25,7 +25,7 @@ class MainWebResearchTools:
         return (
             ToolDefinition("search_web", "搜索公开互联网。适合查找最新资料或候选来源；返回标题、链接和摘要。",
                            {"type": "object", "properties": {"query": {"type": "string"}, "max_results": {"type": "integer"}}, "required": ["query"]}, self.search_web),
-            ToolDefinition("read_web_page", "读取一个公开 HTTP/HTTPS 网页的主要文本；长正文保存为 Artifact。不能访问本机或私网地址。",
+            ToolDefinition("read_web_page", "读取一个公开 HTTP/HTTPS 网页的主要文本；长正文保存为 Artifact。不能访问本机或私网地址。用户要求根据链接生成、整理、重写或保存笔记时禁止使用本工具，必须委派 Learning Agent。",
                            {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}, self.read_web_page),
             ToolDefinition("inspect_github_repository", "读取公开 GitHub 仓库的元数据、README 和文件树概览，用于先理解仓库再决定后续动作。",
                            {"type": "object", "properties": {"repository": {"type": "string"}, "include_tree": {"type": "boolean"}}, "required": ["repository"]}, self.inspect_github_repository),

@@ -76,6 +76,7 @@ class CodeAnalysisGraphNodes:
         self._scope_llm = llm.with_structured_output(
             ScopePlanOutput,
             method="function_calling",
+            include_raw=True,
         )
 
     def inspect_and_prepare(self, state: CodeAnalysisState) -> dict[str, Any]:

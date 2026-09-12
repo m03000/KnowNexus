@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 from study_help_agent.agents import (
     AgentLoopFactory,
@@ -114,11 +115,14 @@ def build_container(settings: Settings | None = None) -> AppContainer:
     # 这些定义进入全局注册表，但只有 Main Profile 列出名称，因此子 Agent 无权调用。
     tool_registry.register_many(MainWebResearchTools().definitions())
 
+    skill_root = (
+        Path(sys._MEIPASS) / "study_help_agent" / "skills"
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+        else Path(__file__).resolve().parents[1] / "skills"
+    )
     skill_registry = SkillRegistry()
     skill_registry.register_many(
-        FileSystemSkillLoader(
-            root=Path(__file__).resolve().parents[1] / "skills"
-        ).load_all()
+        FileSystemSkillLoader(root=skill_root).load_all()
     )
 
     profiles = create_default_profiles()

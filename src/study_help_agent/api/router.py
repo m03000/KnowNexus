@@ -13,6 +13,7 @@ from study_help_agent.api.model_management import router as model_management_rou
 from study_help_agent.api.wiki_library import router as wiki_library_router
 from study_help_agent.api.obsidian_wiki import router as obsidian_wiki_router
 from study_help_agent.api.memory_maintenance import router as memory_maintenance_router
+from study_help_agent.api.platform_auth import router as platform_auth_router
 
 
 def create_api_router() -> APIRouter:
@@ -31,5 +32,6 @@ def create_api_router() -> APIRouter:
     router.include_router(wiki_library_router)
     router.include_router(obsidian_wiki_router)
     router.include_router(memory_maintenance_router)
+    router.include_router(platform_auth_router)
 
     return router

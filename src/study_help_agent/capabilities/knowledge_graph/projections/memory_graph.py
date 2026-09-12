@@ -217,6 +217,7 @@ class MemoryGraphAdapter:
                 "created_at": turn["created_at"],
                 "origin_type": turn["origin_type"],
                 "origin_client": turn["origin_client"],
+                "distillation_status": turn.get("distillation_status", "distilled"),
             },
         }
 

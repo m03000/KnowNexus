@@ -1898,6 +1898,9 @@ function StarfieldApp({
           node_type: 'chapter',
           icon: '◇',
           children: turns,
+          distillationStatus: turns.every((turn) => turn.payload?.distillation_status === 'distilled')
+            ? 'distilled'
+            : (turns.some((turn) => turn.payload?.distillation_status === 'processing') ? 'processing' : 'pending'),
         });}),
       }));
     }
@@ -3461,6 +3464,9 @@ function StarfieldApp({
                   setSessionNameDraft(item.label);
                 }}
               >{item.label}</span>
+            )}
+            {item.sessionId && item.distillationStatus !== 'distilled' && (
+              <span className="sf-distilling-indicator" title={item.distillationStatus === 'processing' ? '正在蒸馏' : '等待蒸馏'} aria-label={item.distillationStatus === 'processing' ? '正在蒸馏' : '等待蒸馏'} />
             )}
             {item.sessionId && renamingSessionId !== item.id && (
               <button

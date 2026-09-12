@@ -54,14 +54,15 @@ class CodeAnalysisOperations:
         self._llm = llm
         self._max_parallelism = max(1, max_parallelism)
 
-        # 文件职责分析的稳定结构化结果，将 Pydantic 模型转换为 LLM function calling 的 JSON schema。
         self._file_context_llm = llm.with_structured_output(
             FileContextOutput,
             method="function_calling",
+            include_raw=True,
         )
         self._block_batch_llm = llm.with_structured_output(
             BlockBatchExplanationOutput,
             method="function_calling",
+            include_raw=True,
         )
         self._batch_planner = CodeBlockBatchPlanner()
         self._importance_scorer = CodeBlockImportanceScorer()

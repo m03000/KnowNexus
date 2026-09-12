@@ -107,19 +107,30 @@ class DshConversationParser:
             if turns and turns[0].external_session_id==session_id: return turns
         raise ValueError("未找到指定 DSH 会话")
     def _load(self, path):
-        sid=path.parent.name; cwd=""; title=""; pending=None; answers={}; turns=[]
+        sid=path.parent.name; cwd=""; title=""; pending=None; answer=""; turns=[]
+        active_turn=None
         for row in self._records(path):
             kind=row.get("type"); data=row.get("data") or {}
             if kind=="session": sid=str(row.get("id") or sid); cwd=str(row.get("cwd") or "")
             elif kind=="session/title": title=str(data.get("title") or title)
+            elif kind=="turn/start":
+                active_turn=data.get("turn")
+                pending=None; answer=""
             elif kind=="user/message" and (data.get("source") or {}).get("kind")=="user":
-                if pending and answers.get(pending[0]): turns.append(self._turn(path,sid,cwd,title,pending,answers.pop(pending[0])))
                 pending=(str(data.get("id") or row.get("seq")), _text(data.get("content")))
+                answer=""
             elif kind=="assistant/message" and pending:
+                if active_turn is not None and data.get("turn") not in {None, active_turn}:
+                    continue
                 message=data.get("message") or {}; text="\n".join(
                     _text(item) for item in message.get("content", []) if isinstance(item,dict) and item.get("type")=="text")
-                if text: answers[pending[0]]=f"{answers.get(pending[0], '')}\n{text}".strip()
-        if pending and answers.get(pending[0]): turns.append(self._turn(path,sid,cwd,title,pending,answers[pending[0]]))
+                if text: answer=f"{answer}\n{text}".strip()
+            elif kind=="turn/end" and pending and answer:
+                if active_turn is None or data.get("turn") in {None, active_turn}:
+                    turns.append(self._turn(path,sid,cwd,title,pending,answer))
+                    pending=None; answer=""; active_turn=None
+        # DSH 会在同一轮持续追加 assistant/message。只有 turn/end 才表示最终答复，
+        # 因此绝不能像普通 JSONL 适配器那样在文件短暂停写时提交最后一轮。
         return tuple(turns)
     def _turn(self,path,sid,cwd,title,pending,answer):
         tid,prompt=pending

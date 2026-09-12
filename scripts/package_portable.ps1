@@ -13,7 +13,7 @@ $requiredPaths = @(
     "backend\knownexus-backend.exe",
     "resources\app.asar",
     "tesseract\tesseract.exe",
-    "models\whisper-small",
+    "model\whisper-small",
     "source-code\README.md",
     "使用说明.txt"
 )

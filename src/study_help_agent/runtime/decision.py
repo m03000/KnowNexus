@@ -7,6 +7,7 @@ LangChain 适配器把受控上下文转换成消息，并要求模型每轮只�
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Literal, Protocol
 
 from langchain_core.language_models import BaseChatModel
@@ -81,6 +82,16 @@ class LangChainDecisionProvider:
     def decide(self, context: AgentLoopContext) -> AgentDecision:
         """把运行上下文交给 LLM，并转换成 Runtime 动作对象。"""
 
+        if self._must_delegate_note(context):
+            return AgentDecision(
+                reasoning_summary="用户要求把链接或资料生成学习笔记，优先交给 Note Sub-Agent 完成。",
+                action=ToolCallAction(
+                    tool_name="delegate_note_agent",
+                    arguments={"goal": context.goal},
+                    purpose="获取资料并生成可保存的学习笔记",
+                ),
+            )
+
         messages = [
             SystemMessage(
                 content=(
@@ -136,6 +147,25 @@ class LangChainDecisionProvider:
             reasoning_summary=output.reasoning_summary.strip(),
             action=action,
         )
+
+    @staticmethod
+    def _must_delegate_note(context: AgentLoopContext) -> bool:
+        """首轮确定性路由笔记任务，避免模型被网页读取工具吸引。"""
+        if context.finalizing or context.iteration != 0 or context.recent_observations:
+            return False
+        available = {str(tool.get("name", "")) for tool in context.available_tools}
+        if "delegate_note_agent" not in available:
+            return False
+        goal = context.goal.strip().casefold()
+        if re.search(r"(?:不要|无需|不必).{0,6}(?:生成|整理|保存|制作).{0,4}笔记", goal):
+            return False
+        note_intent = re.search(
+            r"(?:生成|整理|制作|写成|转成|保存|输出|重新生成).{0,10}(?:笔记|学习资料)|"
+            r"(?:笔记|学习资料).{0,10}(?:生成|整理|制作|保存|重写)",
+            goal,
+        )
+        material = re.search(r"https?://|www\.|[a-z]:[\\/]|(?:链接|视频|网页|文件|资料|文档)", goal)
+        return bool(note_intent and material)
 
     @staticmethod
     def _parse_output(raw: Any, context: AgentLoopContext) -> AgentDecisionOutput:

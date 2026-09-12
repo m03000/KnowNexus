@@ -29,8 +29,10 @@ class CrossEncoderReranker:
                     import torch
                     from sentence_transformers import CrossEncoder
 
+                    from study_help_agent.infrastructure.models.local_files import resolve_local_model
+                    model_path = str(resolve_local_model(self._model_name, self._cache_folder)) if self._local_files_only and self._cache_folder else self._model_name
                     self._model = CrossEncoder(
-                        self._model_name,
+                        model_path,
                         max_length=512,
                         device="cuda" if torch.cuda.is_available() else "cpu",
                         local_files_only=self._local_files_only,

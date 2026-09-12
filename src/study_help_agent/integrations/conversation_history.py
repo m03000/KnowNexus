@@ -60,8 +60,15 @@ class ExternalHistoryService:
                 "duplicates": sum(item.duplicate for item in results)}
 
     def consolidate(self, session_id: str) -> None:
-        if session_id:
-            self._capture_service.consolidate_session_id(session_id=session_id, force=False)
+        """按小批次排空历史会话，避免只蒸馏最早三轮。"""
+        if not session_id:
+            return
+        for _ in range(100):
+            result = self._capture_service.consolidate_session_id(
+                session_id=session_id, force=True,
+            )
+            if not result.get("consolidated"):
+                return
 
     def _parser(self, client: str):
         normalized = client.strip().casefold()

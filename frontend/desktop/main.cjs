@@ -14,6 +14,13 @@ const frontendRoot = app.isPackaged ? app.getAppPath() : path.resolve(__dirname,
 const portableRoot = path.dirname(process.execPath);
 const bundledBackend = path.join(portableRoot, 'backend', 'knownexus-backend.exe');
 const usesBundledBackend = app.isPackaged && fs.existsSync(bundledBackend);
+const storageRoot = path.resolve(process.env.KNOWNEXUS_STORAGE_ROOT || portableRoot);
+if (usesBundledBackend) {
+  const desktopData = path.join(storageRoot, 'data', 'desktop');
+  fs.mkdirSync(desktopData, { recursive: true });
+  app.setPath('userData', desktopData);
+  app.setPath('sessionData', desktopData);
+}
 const backendOutput = [];
 let backendProcess = null;
 let ownsBackend = false;
@@ -101,7 +108,7 @@ async function backendIsReady() {
     const response = await fetch(`${BACKEND_ORIGIN}/health`, { signal: AbortSignal.timeout(1200) });
     if (!response.ok) return false;
     const payload = await response.json();
-    return payload.status === 'ok';
+    return payload.status === 'ok' && payload.app === 'KnowNexus' && payload.version === '0.1.0';
   } catch {
     return false;
   }
@@ -127,11 +134,16 @@ function startBackend() {
         PYTHONUTF8: '1',
         PYTHONUNBUFFERED: '1',
         LLM_API_KEY: process.env.LLM_API_KEY || 'not-configured',
-        DATABASE_PATH: process.env.DATABASE_PATH || path.join(app.getPath('userData'), 'data', 'knownexus.db'),
-        RUNTIME_DATA_DIRECTORY: process.env.RUNTIME_DATA_DIRECTORY || path.join(app.getPath('userData'), 'data'),
-        RUNTIME_LOG_DIRECTORY: process.env.RUNTIME_LOG_DIRECTORY || path.join(app.getPath('userData'), 'logs'),
-        RAG_MODEL_CACHE_DIRECTORY: process.env.RAG_MODEL_CACHE_DIRECTORY || path.join(app.getPath('userData'), 'models', 'huggingface', 'hub'),
-        LEARNING_WHISPER_MODEL: process.env.LEARNING_WHISPER_MODEL || (usesBundledBackend ? path.join(portableRoot, 'models', 'whisper-small') : 'small'),
+        ...(usesBundledBackend ? {
+          KNOWNEXUS_STORAGE_ROOT: storageRoot,
+          KNOWNEXUS_CONFIG_DIRECTORY: path.join(storageRoot, 'data'),
+        } : {}),
+        DATABASE_PATH: process.env.DATABASE_PATH || path.join(usesBundledBackend ? storageRoot : app.getPath('userData'), 'data', 'knownexus.db'),
+        RUNTIME_DATA_DIRECTORY: process.env.RUNTIME_DATA_DIRECTORY || path.join(usesBundledBackend ? storageRoot : app.getPath('userData'), 'data'),
+        RUNTIME_LOG_DIRECTORY: process.env.RUNTIME_LOG_DIRECTORY || path.join(usesBundledBackend ? storageRoot : app.getPath('userData'), 'logs'),
+        OBSERVABILITY_LOG_DIRECTORY: process.env.OBSERVABILITY_LOG_DIRECTORY || path.join(usesBundledBackend ? storageRoot : app.getPath('userData'), 'logs', 'observability'),
+        RAG_MODEL_CACHE_DIRECTORY: process.env.RAG_MODEL_CACHE_DIRECTORY || (usesBundledBackend ? path.join(storageRoot, 'model') : path.join(app.getPath('userData'), 'models', 'huggingface', 'hub')),
+        LEARNING_WHISPER_MODEL: process.env.LEARNING_WHISPER_MODEL || (usesBundledBackend ? path.join(portableRoot, 'model', 'whisper-small') : 'small'),
         TESSERACT_CMD: process.env.TESSERACT_CMD || (usesBundledBackend ? path.join(portableRoot, 'tesseract', 'tesseract.exe') : ''),
         TESSDATA_PREFIX: process.env.TESSDATA_PREFIX || (usesBundledBackend ? path.join(portableRoot, 'tesseract', 'tessdata') : ''),
         CODEX_WATCHER_ENABLED: process.env.CODEX_WATCHER_ENABLED || 'false',
@@ -248,6 +260,19 @@ ipcMain.handle('desktop:pick-file', async () => {
   if (result.canceled || !result.filePaths[0]) return null;
   const sourcePath = result.filePaths[0];
   return { sourcePath, name: path.basename(sourcePath), mediaType: '' };
+});
+
+ipcMain.handle('desktop:pick-cookie-file', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: '选择 Netscape 格式的 cookies.txt',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Cookie 文件', extensions: ['txt'] },
+      { name: '所有文件', extensions: ['*'] },
+    ],
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  return { sourcePath: result.filePaths[0], name: path.basename(result.filePaths[0]) };
 });
 
 ipcMain.handle('desktop:pick-directory', async () => {

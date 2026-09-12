@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('desktopAPI', Object.freeze({
   isDesktop: true,
   apiBase: 'http://127.0.0.1:8765',
   pickFile: () => ipcRenderer.invoke('desktop:pick-file'),
+  pickCookieFile: () => ipcRenderer.invoke('desktop:pick-cookie-file'),
   pickDirectory: () => ipcRenderer.invoke('desktop:pick-directory'),
   getWallpaper: () => ipcRenderer.invoke('desktop:get-wallpaper'),
   listWallpapers: () => ipcRenderer.invoke('desktop:list-wallpapers'),

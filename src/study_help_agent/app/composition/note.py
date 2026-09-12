@@ -88,6 +88,7 @@ def compose_note(
             allowed_roots=settings.allowed_project_roots,
             max_bytes=settings.learning_resource_max_bytes,
             video_cookie_browser=settings.learning_video_cookie_browser,
+            video_cookie_file=settings.runtime_data_directory / "platform_auth" / "cookies.txt",
         ),
         extractor=content_extractor,
     )

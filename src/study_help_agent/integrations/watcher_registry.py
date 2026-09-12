@@ -253,6 +253,7 @@ class ExternalWatcherRegistry:
             runtime = self._runtimes.get(config.id)
             item = {"id": config.id, "name": config.name,
                 "adapter_id": config.adapter_id, "parser_type": config.parser_type,
+                "enabled": config.enabled,
                 "active_seconds": int(saved.get("active_seconds") or 0),
                 "captured_turns": int(saved.get("captured_turns") or 0),
                 "duplicate_turns": int(saved.get("duplicate_turns") or 0),

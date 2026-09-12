@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # 优先查找项目根目录下.env文件
     model_config = SettingsConfigDict(
-        env_file=PROJECT_ROOT / ".env",
+        env_file=Path(os.environ.get('KNOWNEXUS_CONFIG_DIRECTORY', str(PROJECT_ROOT))) / ".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -44,7 +44,7 @@ class Settings(BaseSettings):
 
     # ---------- 应用配置 ----------
 
-    app_name: str = "Study Help Agent"
+    app_name: str = "KnowNexus"
     environment: str = "development"
     debug: bool = True
     cors_origins: list[str] = Field(
@@ -172,7 +172,7 @@ class Settings(BaseSettings):
     )
 
     note_export_directory: Path = Field(
-        default_factory=lambda: Path.home() / "Documents" / "AgentForge" / "导出笔记",
+        default_factory=lambda: Path.home() / "Documents" / "KnowNexus" / "导出笔记",
         description="AI 笔记导出的固定目录",
     )
 
@@ -302,6 +302,10 @@ class Settings(BaseSettings):
     rag_reranker_model: str = Field(
         default="cross-encoder/ms-marco-MiniLM-L-6-v2",
         description="混合召回后的 CrossEncoder 重排模型",
+    )
+    rag_model_mirror_endpoint: str = Field(
+        default="https://hf-mirror.com",
+        description="Hugging Face 官方源网络不可达时使用的备用镜像地址",
     )
     rag_models_local_files_only: bool = Field(
         default=True,

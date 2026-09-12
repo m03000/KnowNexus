@@ -200,7 +200,41 @@ def dashboard(request: Request) -> dict:
             JOIN memory_points p ON r.source_type='memory_point' AND p.memory_id=r.source_id
             WHERE r.created_at>=? AND r.created_at<? AND p.origin_type!='internal'""", (start, end)).fetchone()["n"]
         conflicts = connection.execute("SELECT COUNT(*) n FROM memory_relations WHERE relation_type='CONTRADICTS'").fetchone()["n"]
-    return {"start_at": start, "end_at": end, "memory_points": points, "relations": relations, "conflicts": conflicts, "summary": service(request).latest()}
+        def internal_agent(start_at: str = "", end_at: str = "") -> dict:
+            date_filter = " AND c.created_at>=? AND c.created_at<?" if start_at and end_at else ""
+            params = (start_at, end_at) if date_filter else ()
+            conversation_count = connection.execute(
+                "SELECT COUNT(*) n FROM conversations c WHERE c.origin_type='internal'" + date_filter,
+                params,
+            ).fetchone()["n"]
+            turn_filter = " AND m.created_at>=? AND m.created_at<?" if start_at and end_at else ""
+            captured_turns = connection.execute(
+                "SELECT COUNT(*) n FROM messages m JOIN conversations c ON c.session_id=m.session_id "
+                "WHERE c.origin_type='internal' AND m.role='user'" + turn_filter,
+                params,
+            ).fetchone()["n"]
+            point_filter = " AND p.created_at>=? AND p.created_at<?" if start_at and end_at else ""
+            memory_points = connection.execute(
+                "SELECT COUNT(*) n FROM memory_points p WHERE p.origin_type='internal' AND p.status='active'" + point_filter,
+                params,
+            ).fetchone()["n"]
+            relation_filter = " AND r.created_at>=? AND r.created_at<?" if start_at and end_at else ""
+            relations_count = connection.execute(
+                "SELECT COUNT(DISTINCT r.relation_id) n FROM memory_relations r JOIN memory_points p ON "
+                "(r.source_type='memory_point' AND r.source_id=p.memory_id) OR "
+                "(r.target_type='memory_point' AND r.target_id=p.memory_id) "
+                "WHERE p.origin_type='internal'" + relation_filter,
+                params,
+            ).fetchone()["n"]
+            return {"id": "internal-conversation", "name": "内部对话", "adapter_id": "personal_agent",
+                    "running": True, "conversation_count": conversation_count,
+                    "captured_turns": captured_turns, "memory_points": memory_points,
+                    "relations": relations_count, "distillation_tokens": 0}
+        internal_today = internal_agent(start, end)
+        internal_history = internal_agent()
+    return {"start_at": start, "end_at": end, "memory_points": points, "relations": relations,
+            "conflicts": conflicts, "summary": service(request).latest(),
+            "internal_agent_today": internal_today, "internal_agent": internal_history}
 
 @router.get("/conflicts")
 def list_conflicts(request: Request) -> dict:

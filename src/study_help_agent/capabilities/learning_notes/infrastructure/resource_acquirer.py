@@ -49,11 +49,13 @@ class ManagedLearningResourceAcquirer:
         allowed_roots: list[Path],
         max_bytes: int,
         video_cookie_browser: str = "",
+        video_cookie_file: Path | None = None,
     ) -> None:
         self._storage = storage_directory.resolve()
         self._allowed_roots = [item.expanduser().resolve() for item in allowed_roots]
         self._max_bytes = max_bytes
         self._video_cookie_browser = video_cookie_browser.strip().lower()
+        self._video_cookie_file = video_cookie_file.resolve() if video_cookie_file else None
 
     def acquire(self, source: str) -> AcquiredResource:
         """根据 URI scheme 选择本地复制、直接下载或平台下载。"""
@@ -160,7 +162,9 @@ class ManagedLearningResourceAcquirer:
             "subtitleslangs": ["zh-Hans", "zh-CN", "zh", "ai-zh", "en"],
             "subtitlesformat": "vtt/srt/best",
         }
-        if self._video_cookie_browser:
+        if self._video_cookie_file and self._video_cookie_file.is_file():
+            options["cookiefile"] = str(self._video_cookie_file)
+        elif self._video_cookie_browser:
             options["cookiesfrombrowser"] = (self._video_cookie_browser,)
         with YoutubeDL(options) as downloader:
             info = downloader.extract_info(source, download=True)
