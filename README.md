@@ -20,7 +20,8 @@ KnowNexus 将 AI 对话、长期记忆、个人笔记、文档学习、代码解
 1. 将 ZIP 完整解压到一个固定目录，例如 `D:\Apps\KnowNexus`。
 2. 双击根目录中的 `KnowNexus.exe` 启动。
 3. 首次启动后，根据“必要配置”提示设置模型服务并下载本地检索模型。
-
+4. releases中包含已经下载好的OCR/Whisper等多模态组件
+   
 当前公开版本尚未进行商业代码签名，因此 Windows SmartScreen 首次运行时可能显示“未知发布者”。请确认文件来自本仓库的 Release 页面后再运行。
 
 ## 首次配置
@@ -297,6 +298,9 @@ cd KnowNexus
 ```
 
 ### 安装后端
+
+注意：仅使用源码的话不包含OCR/Whisper等组件，无法进行多模态识别，因此无法识别pdf、视频等资源。  
+若需要llm识别平台链接、图片等内容则需要完整下载releases里面打包好的桌面端应用。
 
 ```powershell
 python -m venv .venv
