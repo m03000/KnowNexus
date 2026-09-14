@@ -117,10 +117,7 @@ class Settings(BaseSettings):
     # ---------- 数据库配置 ----------
 
     database_path: Path = Field(
-        default=PROJECT_ROOT
-                / "var"
-                / "data"
-                / "study_help.db",
+        default=PROJECT_ROOT / "data" / "desktop" / "data" / "study_help.db",
         description="项目使用的 SQLite 数据库",
     )
 
@@ -164,11 +161,11 @@ class Settings(BaseSettings):
     # ---------- 运行期目录 ----------
 
     runtime_data_directory: Path = Field(
-        default=PROJECT_ROOT / "var" / "data",
+        default=PROJECT_ROOT / "data" / "desktop" / "data",
     )
 
     runtime_log_directory: Path = Field(
-        default=PROJECT_ROOT / "var" / "logs",
+        default=PROJECT_ROOT / "data" / "desktop" / "logs",
     )
 
     note_export_directory: Path = Field(
@@ -292,7 +289,7 @@ class Settings(BaseSettings):
     # ---------- 基础 RAG 检索配置 ----------
 
     rag_vector_database_path: Path = Field(
-        default=PROJECT_ROOT / "var" / "data" / "vector_db",
+        default=PROJECT_ROOT / "data" / "desktop" / "data" / "vector_db",
         description="Qdrant 本地向量数据库目录",
     )
     rag_embedding_model: str = Field(
@@ -312,7 +309,7 @@ class Settings(BaseSettings):
         description="是否只从本机缓存加载 Embedding 与 Reranker 模型",
     )
     rag_model_cache_directory: Path = Field(
-        default=PROJECT_ROOT / "var" / "models" / "huggingface" / "hub",
+        default=PROJECT_ROOT / "data" / "desktop" / "models" / "huggingface" / "hub",
         description="项目私有 Hugging Face Hub 缓存目录",
     )
     rag_retrieval_cache_ttl_seconds: int = Field(

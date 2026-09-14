@@ -4,6 +4,29 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
+// Electron does not load the backend's .env file by itself. Load the
+// development copy before any paths are derived so source mode and the
+// Python backend see the same storage/model configuration.
+function loadDevelopmentEnv() {
+  if (app.isPackaged) return;
+  const envPath = path.resolve(__dirname, '..', '..', '.env');
+  if (!fs.existsSync(envPath)) return;
+  for (const rawLine of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const separator = line.indexOf('=');
+    if (separator <= 0) continue;
+    const key = line.slice(0, separator).trim();
+    let value = line.slice(separator + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
+
+loadDevelopmentEnv();
+
 const BACKEND_PORT = 8765;
 const BACKEND_ORIGIN = `http://127.0.0.1:${BACKEND_PORT}`;
 const APP_ICON = path.join(__dirname, 'assets', 'knownexus-icon.png');
@@ -14,8 +37,19 @@ const frontendRoot = app.isPackaged ? app.getAppPath() : path.resolve(__dirname,
 const portableRoot = path.dirname(process.execPath);
 const bundledBackend = path.join(portableRoot, 'backend', 'knownexus-backend.exe');
 const usesBundledBackend = app.isPackaged && fs.existsSync(bundledBackend);
-const storageRoot = path.resolve(process.env.KNOWNEXUS_STORAGE_ROOT || portableRoot);
-if (usesBundledBackend) {
+const projectRoot = usesBundledBackend ? portableRoot : findProjectRoot();
+const developmentBackendCandidates = [
+  process.env.KNOWNEXUS_BACKEND_EXECUTABLE,
+  path.join(projectRoot, 'dist', 'knownexus-backend', 'knownexus-backend.exe'),
+  path.join(projectRoot, 'dist', 'knownexus-backend.exe'),
+].filter(Boolean);
+const developmentBackend = !app.isPackaged
+  ? developmentBackendCandidates.find((candidate) => fs.existsSync(candidate)) || ''
+  : '';
+const standaloneBackend = usesBundledBackend ? bundledBackend : developmentBackend;
+const usesStandaloneBackend = Boolean(standaloneBackend);
+const storageRoot = path.resolve(process.env.KNOWNEXUS_STORAGE_ROOT || (app.isPackaged ? portableRoot : projectRoot));
+if (usesStandaloneBackend) {
   const desktopData = path.join(storageRoot, 'data', 'desktop');
   fs.mkdirSync(desktopData, { recursive: true });
   app.setPath('userData', desktopData);
@@ -26,6 +60,7 @@ let backendProcess = null;
 let ownsBackend = false;
 let mainWindow = null;
 let tray = null;
+const multimodalDownloads = new Map();
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!hasSingleInstanceLock) app.quit();
@@ -43,12 +78,10 @@ function findProjectRoot() {
   }
   for (const candidate of candidates) {
     const resolved = path.resolve(candidate);
-    if (fs.existsSync(path.join(resolved, 'src', 'study_help_agent')) && fs.existsSync(path.join(resolved, '.venv', 'Scripts', 'python.exe'))) return resolved;
+    if (fs.existsSync(path.join(resolved, 'src', 'study_help_agent')) && fs.existsSync(path.join(resolved, 'pyproject.toml'))) return resolved;
   }
-  throw new Error('没有找到项目目录。请确认启动器位于项目根目录，并且 .venv 已创建。');
+  throw new Error('没有找到项目目录。请确认 frontend 位于包含 src/study_help_agent 与 pyproject.toml 的源码目录中。');
 }
-
-const projectRoot = usesBundledBackend ? portableRoot : findProjectRoot();
 
 function wallpaperStatePath() {
   return path.join(app.getPath('userData'), 'workspace-wallpaper.json');
@@ -97,7 +130,7 @@ function mediaTypeFor(filePath) {
 }
 
 function pythonExecutable() {
-  if (usesBundledBackend) return bundledBackend;
+  if (usesStandaloneBackend) return standaloneBackend;
   if (process.env.PERSONAL_AGENT_PYTHON) return process.env.PERSONAL_AGENT_PYTHON;
   const localPython = path.join(projectRoot, '.venv', 'Scripts', 'python.exe');
   return fs.existsSync(localPython) ? localPython : 'python';
@@ -125,7 +158,7 @@ function rememberBackendOutput(chunk) {
 function startBackend() {
   backendProcess = spawn(
     pythonExecutable(),
-    usesBundledBackend ? [] : ['-m', 'uvicorn', 'study_help_agent.app.main:app', '--host', '127.0.0.1', '--port', String(BACKEND_PORT)],
+    usesStandaloneBackend ? [] : ['-m', 'uvicorn', 'study_help_agent.app.main:app', '--host', '127.0.0.1', '--port', String(BACKEND_PORT)],
     {
       cwd: projectRoot,
       windowsHide: true,
@@ -134,7 +167,7 @@ function startBackend() {
         PYTHONUTF8: '1',
         PYTHONUNBUFFERED: '1',
         LLM_API_KEY: process.env.LLM_API_KEY || 'not-configured',
-        ...(usesBundledBackend ? {
+        ...(usesStandaloneBackend ? {
           KNOWNEXUS_STORAGE_ROOT: storageRoot,
           KNOWNEXUS_CONFIG_DIRECTORY: path.join(storageRoot, 'data'),
         } : {}),
@@ -143,9 +176,9 @@ function startBackend() {
         RUNTIME_LOG_DIRECTORY: process.env.RUNTIME_LOG_DIRECTORY || path.join(usesBundledBackend ? storageRoot : app.getPath('userData'), 'logs'),
         OBSERVABILITY_LOG_DIRECTORY: process.env.OBSERVABILITY_LOG_DIRECTORY || path.join(usesBundledBackend ? storageRoot : app.getPath('userData'), 'logs', 'observability'),
         RAG_MODEL_CACHE_DIRECTORY: process.env.RAG_MODEL_CACHE_DIRECTORY || (usesBundledBackend ? path.join(storageRoot, 'model') : path.join(app.getPath('userData'), 'models', 'huggingface', 'hub')),
-        LEARNING_WHISPER_MODEL: process.env.LEARNING_WHISPER_MODEL || (usesBundledBackend ? path.join(portableRoot, 'model', 'whisper-small') : 'small'),
-        TESSERACT_CMD: process.env.TESSERACT_CMD || (usesBundledBackend ? path.join(portableRoot, 'tesseract', 'tesseract.exe') : ''),
-        TESSDATA_PREFIX: process.env.TESSDATA_PREFIX || (usesBundledBackend ? path.join(portableRoot, 'tesseract', 'tessdata') : ''),
+        LEARNING_WHISPER_MODEL: process.env.LEARNING_WHISPER_MODEL || (usesBundledBackend ? path.join(portableRoot, 'model', 'whisper-small') : (fs.existsSync(path.join(app.getPath('userData'), 'models', 'whisper-small', 'model.bin')) ? path.join(app.getPath('userData'), 'models', 'whisper-small') : 'small')),
+        TESSERACT_CMD: process.env.TESSERACT_CMD || (usesBundledBackend ? path.join(portableRoot, 'tesseract', 'tesseract.exe') : (fs.existsSync(path.join(app.getPath('userData'), 'models', 'ocr', 'tesseract', 'tesseract.exe')) ? path.join(app.getPath('userData'), 'models', 'ocr', 'tesseract', 'tesseract.exe') : '')),
+        TESSDATA_PREFIX: process.env.TESSDATA_PREFIX || (usesBundledBackend ? path.join(portableRoot, 'tesseract', 'tessdata') : (fs.existsSync(path.join(app.getPath('userData'), 'models', 'ocr', 'tesseract', 'tessdata')) ? path.join(app.getPath('userData'), 'models', 'ocr', 'tesseract', 'tessdata') : '')),
         CODEX_WATCHER_ENABLED: process.env.CODEX_WATCHER_ENABLED || 'false',
         PYTHONPATH: [path.join(projectRoot, 'src'), process.env.PYTHONPATH || ''].filter(Boolean).join(path.delimiter),
       },
@@ -248,6 +281,109 @@ function createTray() {
   return tray;
 }
 
+function multimodalModelsRoot() {
+  return path.join(app.getPath('userData'), 'models');
+}
+
+function directoryBytes(directory) {
+  if (!fs.existsSync(directory)) return 0;
+  return fs.readdirSync(directory, { withFileTypes: true }).reduce((sum, entry) => {
+    const target = path.join(directory, entry.name);
+    return sum + (entry.isDirectory() ? directoryBytes(target) : fs.statSync(target).size);
+  }, 0);
+}
+
+function multimodalStatus() {
+  const root = multimodalModelsRoot();
+  const definitions = [
+    { kind: 'ocr', name: 'Tesseract OCR', model_id: 'Tesseract 5.4 · chi_sim + eng', directory: path.join(root, 'ocr', 'tesseract'), expected: 185000000, required: ['tesseract.exe', path.join('tessdata', 'chi_sim.traineddata'), path.join('tessdata', 'eng.traineddata')] },
+    { kind: 'whisper', name: 'Whisper 语音识别', model_id: 'Systran/faster-whisper-small', directory: path.join(root, 'whisper-small'), expected: 486000000, required: ['model.bin', 'config.json', 'tokenizer.json', 'vocabulary.txt'] },
+  ];
+  const items = definitions.map((definition) => {
+    const state = multimodalDownloads.get(definition.kind) || {};
+    const installed = definition.required.every((relative) => fs.existsSync(path.join(definition.directory, relative)) && fs.statSync(path.join(definition.directory, relative)).size > 0);
+    const downloaded = state.downloadedBytes || directoryBytes(definition.directory);
+    const expected = state.expectedBytes || definition.expected;
+    return { kind: definition.kind, name: definition.name, model_id: definition.model_id, directory: definition.directory, installed, downloading: state.status === 'downloading', phase: state.phase || '', downloaded_bytes: downloaded, expected_bytes: expected, download_progress: installed ? 1 : Math.min(.98, downloaded / Math.max(1, expected)) };
+  });
+  return { items, ready: items.every((item) => item.installed) };
+}
+
+async function downloadMultimodalFile(kind, url, target, completed = 0) {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const response = await net.fetch(url, { headers: { 'User-Agent': `KnowNexus/${app.getVersion()}` } });
+  if (!response.ok || !response.body) throw new Error(`下载失败：HTTP ${response.status}`);
+  const state = multimodalDownloads.get(kind);
+  const length = Number(response.headers.get('content-length') || 0);
+  state.expectedBytes = Math.max(state.expectedBytes || 0, completed + length);
+  const temporary = `${target}.incomplete`;
+  const output = fs.createWriteStream(temporary);
+  const reader = response.body.getReader();
+  let written = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      output.write(Buffer.from(value));
+      written += value.byteLength;
+      state.downloadedBytes = completed + written;
+    }
+  } finally {
+    await new Promise((resolve, reject) => output.end((error) => error ? reject(error) : resolve()));
+  }
+  if (written < 1000) throw new Error(`下载文件不完整：${path.basename(target)}`);
+  fs.renameSync(temporary, target);
+  return written;
+}
+
+async function installDesktopMultimodal(kind) {
+  const root = multimodalModelsRoot();
+  const state = { status: 'downloading', phase: '', downloadedBytes: 0, expectedBytes: kind === 'ocr' ? 60000000 : 486000000 };
+  multimodalDownloads.set(kind, state);
+  try {
+    if (kind === 'ocr') {
+      const runtime = path.join(root, 'ocr', 'tesseract');
+      const installer = path.join(root, 'ocr', 'tesseract-installer.exe');
+      state.phase = '下载 OCR 引擎';
+      let completed = await downloadMultimodalFile(kind, 'https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0.20240606/tesseract-ocr-w64-setup-5.4.0.20240606.exe', installer);
+      state.phase = '安装 OCR 引擎';
+      fs.mkdirSync(runtime, { recursive: true });
+      await new Promise((resolve, reject) => {
+        const child = spawn(installer, ['/S', `/D=${runtime}`], { windowsHide: true });
+        child.once('error', reject); child.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`OCR 引擎安装失败（${code}）`)));
+      });
+      for (const language of ['chi_sim', 'eng']) {
+        state.phase = `下载 ${language} 语言模型`;
+        completed += await downloadMultimodalFile(kind, `https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/${language}.traineddata`, path.join(runtime, 'tessdata', `${language}.traineddata`), completed);
+      }
+      fs.rmSync(installer, { force: true });
+    } else if (kind === 'whisper') {
+      const directory = path.join(root, 'whisper-small');
+      let completed = 0;
+      for (const file of ['config.json', 'model.bin', 'tokenizer.json', 'vocabulary.txt']) {
+        state.phase = `下载 Whisper ${file}`;
+        completed += await downloadMultimodalFile(kind, `https://huggingface.co/Systran/faster-whisper-small/resolve/main/${file}?download=true`, path.join(directory, file), completed);
+      }
+    } else throw new Error('不支持的多模态模型');
+    return multimodalStatus();
+  } finally {
+    multimodalDownloads.delete(kind);
+  }
+}
+
+async function testDesktopMultimodal(kind) {
+  const status = multimodalStatus();
+  const item = status.items.find((entry) => entry.kind === kind);
+  if (!item?.installed) throw new Error('请先完成安装');
+  if (kind === 'ocr') {
+    await new Promise((resolve, reject) => {
+      const child = spawn(path.join(item.directory, 'tesseract.exe'), ['--list-langs'], { windowsHide: true, env: { ...process.env, TESSDATA_PREFIX: path.join(item.directory, 'tessdata') } });
+      child.once('error', reject); child.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`OCR 测试失败（${code}）`)));
+    });
+  }
+  return { ...status, test: { ok: true, kind, message: kind === 'ocr' ? 'OCR 引擎与中英文模型测试通过' : 'Whisper small 模型文件完整；重启后将由本地推理引擎加载' } };
+}
+
 ipcMain.handle('desktop:pick-file', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: '选择要关联并加入知识库的文件',
@@ -261,6 +397,10 @@ ipcMain.handle('desktop:pick-file', async () => {
   const sourcePath = result.filePaths[0];
   return { sourcePath, name: path.basename(sourcePath), mediaType: '' };
 });
+
+ipcMain.handle('desktop:multimodal-status', () => multimodalStatus());
+ipcMain.handle('desktop:multimodal-install', (event, kind) => installDesktopMultimodal(String(kind || '')));
+ipcMain.handle('desktop:multimodal-test', (event, kind) => testDesktopMultimodal(String(kind || '')));
 
 ipcMain.handle('desktop:pick-cookie-file', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {

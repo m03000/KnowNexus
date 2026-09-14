@@ -64,6 +64,43 @@ def test_retrieval_model(kind: str, manager: Manager):
         raise HTTPException(status_code=400, detail=f"本地模型测试失败：{error}") from error
 
 
+@router.get("/multimodal")
+def get_multimodal_models(manager: Manager):
+    return manager.multimodal_models()
+
+
+@router.post("/multimodal/ocr/install")
+def install_ocr_models(manager: Manager):
+    try:
+        return manager.install_ocr_models()
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f"OCR 模型下载失败：{error}") from error
+
+
+@router.post("/multimodal/ocr/test")
+def test_ocr_models(manager: Manager):
+    try:
+        return manager.test_ocr_models()
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"OCR 测试失败：{error}") from error
+
+
+@router.post("/multimodal/whisper/install")
+def install_whisper_model(manager: Manager):
+    try:
+        return manager.install_whisper_model()
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f"Whisper 模型下载失败：{error}") from error
+
+
+@router.post("/multimodal/whisper/test")
+def test_whisper_model(manager: Manager):
+    try:
+        return manager.test_whisper_model()
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"Whisper 测试失败：{error}") from error
+
+
 @router.post("/{provider_id}/activate")
 def activate_provider(provider_id: str, manager: Manager):
     try:

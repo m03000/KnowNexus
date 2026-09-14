@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('desktopAPI', Object.freeze({
   windowAction: (action) => ipcRenderer.invoke('desktop:window-action', action),
   checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
   openUpdatePage: (url) => ipcRenderer.invoke('desktop:open-update-page', url),
+  getMultimodalModels: () => ipcRenderer.invoke('desktop:multimodal-status'),
+  installMultimodalModel: (kind) => ipcRenderer.invoke('desktop:multimodal-install', kind),
+  testMultimodalModel: (kind) => ipcRenderer.invoke('desktop:multimodal-test', kind),
 }));
 
 window.addEventListener('DOMContentLoaded', () => {

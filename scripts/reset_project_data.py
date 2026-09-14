@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_ROOT = (PROJECT_ROOT / "var" / "data").resolve()
+DATA_ROOT = (PROJECT_ROOT / "data" / "desktop" / "data").resolve()
 DATABASE_PATH = DATA_ROOT / "study_help.db"
 DOMAIN_TABLES = {
     "memory": ("memory_processing_leases", "conversation_turns", "memory_relations", "memory_sources", "memory_entities", "memory_points_fts", "memory_points", "memories", "messages_fts", "messages", "conversations", "watcher_monitor_buckets", "watcher_monitor_sessions"),

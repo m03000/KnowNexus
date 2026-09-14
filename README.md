@@ -233,12 +233,13 @@ KnowNexus.exe 所在目录\data
 通常对应：
 
 ```text
-D:\github\KnowNexus-portable\data
+KnowNexus-portable\data
 ```
 
 其中可能包含数据库、日志、模型服务配置、壁纸、下载的检索模型、Wiki、记忆和文档处理数据。
 
-KnowNexus 以本地存储为主，但向 AI 提问时，消息会发送给用户自己配置的模型服务商。启用外部智能体监听前，也请确认所选目录中不存在不希望处理的敏感内容。
+KnowNexus 以本地存储为主，但向 AI 提问时，消息会发送给用户自己配置的模型服务商。  
+启用外部智能体监听前，也请确认所选目录中不存在不希望处理的敏感内容。
 
 新版数据跟随程序目录。更新时保留 `data`、`model` 和 `logs`，不要随旧程序一起删除。旧版 `%APPDATA%\KnowNexus` 不会自动迁移或删除；迁移前请备份。
 
@@ -277,10 +278,6 @@ Get-FileHash .\KnowNexus-0.1.0-Windows-x64-portable.zip -Algorithm SHA256
 
 Whisper 在本机运行，速度取决于文件长度和电脑性能。长音视频建议先裁剪。
 
-### 没有显示更新提示
-
-只有 GitHub 上存在高于当前版本的正式 Release 时才会显示。草稿 Release、版本相同或网络不可用时不会提示。
-
 ## 开发
 
 ### 环境要求
@@ -300,7 +297,7 @@ cd KnowNexus
 ### 安装后端
 
 注意：仅使用源码的话不包含OCR/Whisper等组件，无法进行多模态识别，因此无法识别pdf、视频等资源。  
-若需要llm识别平台链接、图片等内容则需要完整下载releases里面打包好的桌面端应用。
+若需要llm识别平台链接、图片等内容则需要完整下载releases里面打包好的桌面端应用h或者在应用内下载。
 
 ```powershell
 python -m venv .venv
@@ -309,7 +306,7 @@ python -m venv .venv
 Copy-Item .env.example .env
 ```
 
-编辑 `.env`，配置自己的模型服务。不要提交包含真实密钥的 `.env`。
+编辑 `.env`，配置自己的模型服务。
 
 如需限制代码解析允许访问的目录：
 
@@ -346,6 +343,7 @@ npm run build
 npm run desktop:package
 ```
 
+
 Electron 构建输出位于：
 
 ```text
@@ -367,7 +365,7 @@ KnowNexus/
 ├─ integrations/             外部工具集成
 ├─ scripts/                  构建和维护脚本
 ├─ src/study_help_agent/     FastAPI 后端与核心业务
-├─ var/                      本地运行数据，不提交到 Git
+├─ data/desktop/             统一的本地运行数据（首次启动生成，不提交 Git）
 ├─ .env.example              环境变量示例
 ├─ CHANGELOG.md              版本变更记录
 ├─ RELEASE_NOTES.md          当前版本发布说明

@@ -9,10 +9,12 @@ from __future__ import annotations
 import os
 import json
 import re
+import sys
 import uuid
 from pathlib import Path
 import tempfile
 import threading
+import urllib.request
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -38,6 +40,15 @@ class ModelManager:
         "embedding": 4_373 * 1024 * 1024,
         "reranker": 849 * 1024 * 1024,
     }
+    _OCR_MODELS = {
+        "chi_sim": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/chi_sim.traineddata",
+        "eng": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/eng.traineddata",
+    }
+    _TESSERACT_INSTALLER_URL = (
+        "https://github.com/UB-Mannheim/tesseract/releases/download/"
+        "v5.4.0.20240606/tesseract-ocr-w64-setup-5.4.0.20240606.exe"
+    )
+    _WHISPER_MODEL_ID = "Systran/faster-whisper-small"
 
     def configuration(self) -> dict[str, Any]:
         catalog = self._load_catalog()
@@ -261,6 +272,176 @@ class ModelManager:
         """Return the two fixed local retrieval models exposed by this release."""
         models = [self._model_info("embedding"), self._model_info("reranker")]
         return {"models": models, "ready": all(item["installed"] for item in models)}
+
+    def _models_root(self) -> Path:
+        return self._settings.rag_model_cache_directory.parents[1]
+
+    def _ocr_runtime_directory(self) -> Path:
+        return self._models_root() / "ocr" / "tesseract"
+
+    def _ocr_directory(self) -> Path:
+        return self._ocr_runtime_directory() / "tessdata"
+
+    def _whisper_directory(self) -> Path:
+        return self._models_root() / "whisper-small"
+
+    @staticmethod
+    def _directory_bytes(directory: Path) -> int:
+        if not directory.exists():
+            return 0
+        try:
+            return sum(item.stat().st_size for item in directory.rglob("*") if item.is_file())
+        except OSError:
+            return 0
+
+    def _multimodal_item(self, kind: str) -> dict[str, Any]:
+        with self._download_lock:
+            state = dict(self._downloads.get(kind) or {})
+        if kind == "ocr":
+            runtime = self._ocr_runtime_directory()
+            directory = self._ocr_directory()
+            required = [runtime / "tesseract.exe", directory / "chi_sim.traineddata", directory / "eng.traineddata"]
+            expected = 185_000_000
+            name = "Tesseract OCR"
+            model_id = "Tesseract 5.4 · chi_sim + eng"
+        elif kind == "whisper":
+            directory = self._whisper_directory()
+            required = [directory / "model.bin", directory / "config.json", directory / "tokenizer.json", directory / "vocabulary.txt"]
+            expected = 486_000_000
+            name = "Whisper 语音识别"
+            model_id = self._WHISPER_MODEL_ID
+        else:
+            raise ValueError("仅支持 ocr 或 whisper")
+        installed = all(item.is_file() and item.stat().st_size > 0 for item in required)
+        downloaded = self._directory_bytes(directory if kind == "whisper" else self._models_root() / "ocr")
+        active_downloaded = int(state.get("downloaded_bytes") or downloaded)
+        active_expected = int(state.get("expected_bytes") or expected)
+        progress = 1.0 if installed else min(.98, active_downloaded / max(1, active_expected))
+        return {"kind": kind, "name": name, "model_id": model_id, "installed": installed,
+                "directory": str(directory), "downloading": state.get("status") == "downloading",
+                "phase": str(state.get("phase") or ""), "download_progress": progress,
+                "downloaded_bytes": active_downloaded, "expected_bytes": active_expected}
+
+    def multimodal_models(self) -> dict[str, Any]:
+        items = [self._multimodal_item("ocr"), self._multimodal_item("whisper")]
+        return {"items": items, "ready": all(item["installed"] for item in items)}
+
+    def _download_file(self, kind: str, url: str, target: Path, *, completed: int = 0) -> int:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_suffix(target.suffix + ".incomplete")
+        request = urllib.request.Request(url, headers={"User-Agent": "KnowNexus/0.1"})
+        with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as stream:
+            content_length = int(response.headers.get("Content-Length") or 0)
+            with self._download_lock:
+                state = self._downloads[kind]
+                state["expected_bytes"] = max(int(state.get("expected_bytes") or 0), completed + content_length)
+            written = 0
+            while chunk := response.read(1024 * 512):
+                stream.write(chunk)
+                written += len(chunk)
+                with self._download_lock:
+                    self._downloads[kind]["downloaded_bytes"] = completed + written
+        if temporary.stat().st_size < 100_000:
+            raise RuntimeError(f"下载文件不完整：{target.name}")
+        os.replace(temporary, target)
+        return written
+
+    @staticmethod
+    def _ensure_python_packages(import_names: list[str], packages: list[str]) -> None:
+        if getattr(sys, "frozen", False):
+            return
+        try:
+            for import_name in import_names:
+                __import__(import_name)
+            return
+        except ImportError:
+            pass
+        import subprocess
+        result = subprocess.run([sys.executable, "-m", "pip", "install", *packages],
+                                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                timeout=900, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if result.returncode:
+            detail = (result.stderr or result.stdout).strip()[-1000:]
+            raise RuntimeError(f"Python 多模态依赖安装失败：{detail}")
+
+    def install_ocr_models(self) -> dict[str, Any]:
+        import subprocess
+        if os.name != "nt":
+            raise RuntimeError("自动安装 Tesseract 引擎目前仅支持 Windows")
+        root = self._models_root() / "ocr"
+        runtime, tessdata = self._ocr_runtime_directory(), self._ocr_directory()
+        installer = root / "tesseract-installer.exe"
+        with self._download_lock:
+            self._downloads["ocr"] = {"status": "downloading", "phase": "下载 OCR 引擎", "expected_bytes": 60_000_000, "downloaded_bytes": 0}
+        try:
+            self._ensure_python_packages(["pytesseract", "PIL", "fitz"], ["pytesseract>=0.3.13", "pillow>=10", "pymupdf>=1.24"])
+            completed = self._download_file("ocr", self._TESSERACT_INSTALLER_URL, installer)
+            with self._download_lock:
+                self._downloads["ocr"].update({"phase": "安装 OCR 引擎", "downloaded_bytes": completed})
+            runtime.mkdir(parents=True, exist_ok=True)
+            result = subprocess.run([str(installer), "/S", f"/D={runtime}"], capture_output=True,
+                                    timeout=300, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if result.returncode or not (runtime / "tesseract.exe").is_file():
+                raise RuntimeError(f"Tesseract 引擎安装失败（退出码 {result.returncode}）")
+            for language, url in self._OCR_MODELS.items():
+                with self._download_lock:
+                    self._downloads["ocr"]["phase"] = f"下载 {language} 语言模型"
+                completed += self._download_file("ocr", url, tessdata / f"{language}.traineddata", completed=completed)
+            os.environ["TESSERACT_CMD"] = str(runtime / "tesseract.exe")
+            os.environ["TESSDATA_PREFIX"] = str(tessdata)
+        finally:
+            installer.unlink(missing_ok=True)
+            with self._download_lock:
+                self._downloads.pop("ocr", None)
+        return self.multimodal_models()
+
+    def install_whisper_model(self) -> dict[str, Any]:
+        from huggingface_hub import snapshot_download
+        directory = self._whisper_directory()
+        directory.mkdir(parents=True, exist_ok=True)
+        with self._download_lock:
+            self._downloads["whisper"] = {"status": "downloading", "phase": "下载 Whisper small", "expected_bytes": 486_000_000}
+        try:
+            self._ensure_python_packages(["faster_whisper", "cv2"], ["faster-whisper>=1.1", "opencv-python-headless>=4.10"])
+            snapshot_download(repo_id=self._WHISPER_MODEL_ID, local_dir=str(directory), local_files_only=False,
+                              allow_patterns=["model.bin", "config.json", "tokenizer.json", "vocabulary.txt"],
+                              endpoint="https://huggingface.co")
+            os.environ["LEARNING_WHISPER_MODEL"] = str(directory)
+        except Exception as exc:
+            mirror = self._settings.rag_model_mirror_endpoint.strip().rstrip("/")
+            if not mirror or not self._is_network_error(exc):
+                raise
+            snapshot_download(repo_id=self._WHISPER_MODEL_ID, local_dir=str(directory), local_files_only=False,
+                              allow_patterns=["model.bin", "config.json", "tokenizer.json", "vocabulary.txt"], endpoint=mirror)
+            os.environ["LEARNING_WHISPER_MODEL"] = str(directory)
+        finally:
+            with self._download_lock:
+                self._downloads.pop("whisper", None)
+        return self.multimodal_models()
+
+    def test_ocr_models(self) -> dict[str, Any]:
+        import subprocess
+        item = self._multimodal_item("ocr")
+        if not item["installed"]:
+            raise RuntimeError("请先完整安装 Tesseract 引擎与中英文 OCR 模型")
+        executable = self._ocr_runtime_directory() / "tesseract.exe"
+        result = subprocess.run([str(executable), "--list-langs"], capture_output=True, text=True,
+                                encoding="utf-8", errors="replace", timeout=30,
+                                env={**os.environ, "TESSDATA_PREFIX": item["directory"]},
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        output = f"{result.stdout}\n{result.stderr}"
+        if result.returncode or not all(language in output for language in self._OCR_MODELS):
+            raise RuntimeError("Tesseract 未能加载 chi_sim 与 eng 语言模型")
+        return {**self.multimodal_models(), "test": {"ok": True, "kind": "ocr", "message": "OCR 引擎与中英文识别模型测试通过"}}
+
+    def test_whisper_model(self) -> dict[str, Any]:
+        item = self._multimodal_item("whisper")
+        if not item["installed"]:
+            raise RuntimeError("请先安装 Whisper small 模型")
+        from faster_whisper import WhisperModel
+        model = WhisperModel(item["directory"], device="cpu", compute_type="int8", local_files_only=True)
+        del model
+        return {**self.multimodal_models(), "test": {"ok": True, "kind": "whisper", "message": "Whisper small 已完成本地离线加载测试"}}
 
     def install_retrieval_model(self, kind: str) -> dict[str, Any]:
         """Download one fixed model, falling back to the mirror on network errors."""

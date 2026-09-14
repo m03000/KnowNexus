@@ -23,7 +23,7 @@ class ObservabilityRecorder:
     def __init__(self, directory: Path | None = None) -> None:
         configured = os.getenv("OBSERVABILITY_LOG_DIRECTORY", "").strip()
         self._directory = Path(configured) if configured else (
-            directory or PROJECT_ROOT / "var" / "observability"
+            directory or PROJECT_ROOT / "data" / "desktop" / "logs" / "observability"
         )
         self._events_directory = self._directory / "events"
         self._runs_directory = self._directory / "runs"

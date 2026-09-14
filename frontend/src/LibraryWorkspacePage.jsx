@@ -54,7 +54,7 @@ function LibraryWorkspacePage({ apiBase = '', openDocumentRequest = null, onOpen
   const [createDialog, setCreateDialog] = useState(null);
   const [deleteItemDialog, setDeleteItemDialog] = useState(null);
   const [wikiConfig, setWikiConfig] = useState({ vault_path: '', enabled: false });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const sidebarCollapsed = false;
   const [sidebarWidth, setSidebarWidth] = useState(() => storedWidth('personal-agent:library-sidebar-width', 310));
   const [outlineWidth, setOutlineWidth] = useState(() => storedWidth('personal-agent:note-outline-width', 300));
   const lastSaved = useRef('');
@@ -562,7 +562,7 @@ function LibraryWorkspacePage({ apiBase = '', openDocumentRequest = null, onOpen
         <footer><button type="button" onClick={() => setDeleteItemDialog(null)}>取消</button><button type="button" className="danger" onClick={confirmRemoveItem}>{deleteItemDialog.linked ? '解除关联' : '确认删除'}</button></footer>
       </section>
     </div>}
-    <aside className="learning-notes-sidebar"><header className="learning-notes-header"><button className="chat-session-toggle" type="button" onClick={() => setSidebarCollapsed((value) => !value)} title={sidebarCollapsed ? '展开目录' : '收起目录'}>☰</button></header>
+    <aside className="learning-notes-sidebar"><header className="learning-notes-header" aria-hidden="true" />
       {!sidebarCollapsed && <><div className="current-vault-path"><span>当前 Vault</span><strong title={wikiConfig.vault_path}>{wikiConfig.enabled ? wikiConfig.vault_path : '内置 Wiki'}</strong></div><label className="notes-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索笔记或文档" /></label>
       <input ref={uploadRef} type="file" hidden onChange={importDocument} accept=".pdf,.doc,.docx,.md,.txt,.rtf,.html,.htm,.png,.jpg,.jpeg" />
       <div className="notes-directory">{loading ? <div className="notes-empty">正在加载目录…</div> : (foldersByParent.root || []).map((folder) => renderFolder(folder))}</div>

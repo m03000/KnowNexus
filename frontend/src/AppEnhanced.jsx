@@ -36,6 +36,96 @@ function Icon({ type }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round">{paths[type]}</svg>;
 }
 
+function DeskMemoryPreview({ apiBase }) {
+  const [data, setData] = useState({ today: [], history: [], maintenance: {}, enabledIds: new Set() });
+  useEffect(() => {
+    let live = true;
+    const load = async () => {
+      const start = new Date(); start.setHours(0, 0, 0, 0);
+      const end = new Date(start); end.setDate(end.getDate() + 1);
+      const responses = await Promise.all([
+        fetch(`${apiBase}/api/integrations/codex-watcher/statistics?start_at=${encodeURIComponent(start.toISOString())}&end_at=${encodeURIComponent(end.toISOString())}`),
+        fetch(`${apiBase}/api/integrations/codex-watcher/statistics`),
+        fetch(`${apiBase}/api/integrations/codex-watcher`),
+        fetch(`${apiBase}/api/memory-maintenance/dashboard`),
+      ]);
+      const values = await Promise.all(responses.map((response) => response.ok ? response.json() : {}));
+      if (!live) return;
+      setData({
+        today: values[0].watchers || [],
+        history: values[1].watchers || [],
+        enabledIds: new Set((values[2].watchers || []).filter((watcher) => watcher.enabled).map((watcher) => watcher.id)),
+        maintenance: values[3] || {},
+      });
+    };
+    load().catch(() => {});
+    return () => { live = false; };
+  }, [apiBase]);
+  const placeholders = (prefix, count) => Array.from({ length: Math.max(0, count) }, (_, index) => ({ id: `${prefix}-${index}`, name: '待接入智能体', running: false }));
+  const todayAgents = data.today.filter((agent) => data.enabledIds.has(agent.id)).slice(0, 3);
+  const historyAgents = data.history.filter((agent) => data.enabledIds.has(agent.id)).slice(0, 3);
+  const internalToday = data.maintenance.internal_agent_today || { id: 'desk-internal-today', name: '内部对话', adapter_id: 'personal_agent', running: true };
+  const internalAgent = data.maintenance.internal_agent || { id: 'desk-internal', name: '内部对话', adapter_id: 'personal_agent', running: true };
+  const sourceSlots = [...todayAgents, ...placeholders('desk-source', 3 - todayAgents.length), internalToday];
+  const agents = [...historyAgents, ...placeholders('desk-agent', 3 - historyAgents.length), internalAgent];
+  const totalTurns = todayAgents.reduce((sum, agent) => sum + Number(agent.captured_turns || 0), 0) + Number(internalToday.captured_turns || 0);
+  const totalTokens = todayAgents.reduce((sum, agent) => sum + Number(agent.distillation_tokens || 0), 0) + Number(internalToday.distillation_tokens || 0);
+  const listeningTime = (seconds = 0) => `${Math.floor(Math.max(0, Number(seconds) || 0) / 60)} 分钟`;
+  const metrics = (agent) => [['会话', agent.conversation_count || 0], ['轮次', agent.captured_turns || 0], ['关系', agent.relations || 0], ['记忆点', agent.memory_points || 0], ['蒸馏 Token', Number(agent.distillation_tokens || 0).toLocaleString('zh-CN')], ['监听时间', listeningTime(agent.active_seconds)]];
+  return <div className="desk-memory-preview">
+    <section className="desk-preview-overview">
+      <header><h2>今日记录数据</h2></header>
+      <div className="desk-preview-sources">{sourceSlots.map((agent) => <article key={agent.id}><span><i className={agent.running ? 'running' : ''}/>{agent.name}</span><strong>{Number(agent.captured_turns || 0).toLocaleString('zh-CN')}</strong><small>监听对话</small></article>)}</div>
+      <div className="desk-preview-derived">{[['捕获轮次', totalTurns], ['记忆点', data.maintenance.memory_points || 0], ['关系', data.maintenance.relations || 0], ['蒸馏 Token', totalTokens]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{Number(value).toLocaleString('zh-CN')}</strong></div>)}</div>
+      <div className="desk-preview-summary-title">今日信息总结</div>
+      <div className="desk-preview-summary"><article><strong>今日总结</strong><span>{data.maintenance.summary?.items?.length || 0}</span></article><article><strong>待处理冲突</strong><span>{data.maintenance.conflicts || 0}</span><small>当前没有需要处理的冲突记忆</small></article></div>
+    </section>
+    <section className="desk-preview-agents">
+      <header><h2>智能体信息</h2><span>{historyAgents.length + 1} 个来源</span></header>
+      <div>{agents.map((agent) => <article key={agent.id}><header><i className={agent.running ? 'running' : ''}/><strong>{agent.name}</strong></header><dl>{metrics(agent).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></article>)}</div>
+    </section>
+  </div>;
+}
+
+function DeskHome({ codeEnabled, navigate }) {
+  const [now, setNow] = useState(() => new Date());
+  const [dashboardPeek, setDashboardPeek] = useState(false);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const hotspots = [
+    { id: 'notes', label: '打开笔记与文档', view: 'learning' },
+    { id: 'code', label: codeEnabled ? '打开代码项目' : '请先在基础配置中启用项目解析', view: 'code', disabled: !codeEnabled },
+    { id: 'graph', label: '进入知识图谱', view: 'memory-graph' },
+    { id: 'dashboard', label: '查看记忆与 Wiki 仪表盘', view: 'chat' },
+    { id: 'headphones', label: '语音功能 · 敬请期待', disabled: true },
+  ];
+    return <section className="desk-home" aria-label="KnowNexus 动态书桌">
+      <video className="desk-home-video" src={`${import.meta.env.BASE_URL}knownexus-desk.mp4`} poster={`${import.meta.env.BASE_URL}knownexus-desk.png`} autoPlay muted loop playsInline aria-hidden="true"/>
+      <div className="desk-home-shade" aria-hidden="true"/>
+      <div className="desk-corner-clock" aria-label="当前日期和时间">
+        <time className="desk-clock-time" dateTime={now.toISOString()}>{now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}</time>
+        <time className="desk-clock-date" dateTime={now.toISOString().slice(0, 10)}>{now.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })}</time>
+        <span className="desk-clock-weekday">{now.toLocaleDateString('zh-CN', { weekday: 'long' })}</span>
+      </div>
+      <div className={`desk-dashboard-peek ${dashboardPeek ? 'visible' : ''}`} aria-hidden={!dashboardPeek}>
+        {dashboardPeek && <DeskMemoryPreview apiBase={API_BASE}/>}
+      </div>
+      {hotspots.map((item) => <button
+      type="button"
+      key={item.id}
+      className={`desk-hotspot desk-hotspot-${item.id}`}
+      aria-label={item.label}
+      data-label={item.label}
+      disabled={item.disabled}
+      onMouseEnter={() => item.id === 'dashboard' && setDashboardPeek(true)}
+      onMouseLeave={() => item.id === 'dashboard' && setDashboardPeek(false)}
+      onClick={() => !item.disabled && (item.action ? item.action() : navigate(item.view))}
+    ><span>{item.label}</span></button>)}
+  </section>;
+}
+
 function DesktopWindowControls() {
   const [maximized, setMaximized] = useState(false);
   useEffect(() => {
@@ -125,7 +215,7 @@ function WatcherSettings() {
   </div>;
 }
 
-function Settings({ open, close, appearance, cardOpacity, theme, setTheme, initialSection = 'general', setupFocus = '', onWikiReady }) {
+function Settings({ open, close, appearance, cardOpacity, theme, setTheme, initialSection = 'general', setupFocus = '', onWikiReady, projectAnalysisEnabled = false, onToggleProjectAnalysis }) {
   const [section, setSection] = useState('general');
   const emptyProvider = { providerId: '', name: '', provider: 'openai-compatible', apiKey: '', baseUrl: 'https://api.deepseek.com/v1', model: '' };
   const [modelDraft, setModelDraft] = useState(emptyProvider);
@@ -139,6 +229,12 @@ function Settings({ open, close, appearance, cardOpacity, theme, setTheme, initi
   const [retrievalModels, setRetrievalModels] = useState({ models: [], ready: false });
   const [installingModel, setInstallingModel] = useState('');
   const [retrievalMessage, setRetrievalMessage] = useState('');
+  const [multimodal, setMultimodal] = useState({ items: [
+    { kind: 'ocr', name: 'Tesseract OCR', model_id: 'Tesseract 5.4 · chi_sim + eng', directory: 'models/ocr/tesseract', installed: false, download_progress: 0 },
+    { kind: 'whisper', name: 'Whisper 语音识别', model_id: 'Systran/faster-whisper-small', directory: 'models/whisper-small', installed: false, download_progress: 0 },
+  ], ready: false });
+  const [multimodalBusy, setMultimodalBusy] = useState('');
+  const [multimodalMessage, setMultimodalMessage] = useState('');
   const [platformAuth, setPlatformAuth] = useState({ configured: false, cookie_count: 0, domains: [], message: '尚未导入平台 Cookie' });
   const [platformAuthBusy, setPlatformAuthBusy] = useState(false);
   const [platformAuthMessage, setPlatformAuthMessage] = useState('');
@@ -153,22 +249,48 @@ function Settings({ open, close, appearance, cardOpacity, theme, setTheme, initi
   useEffect(() => {
     if (open) setSection(initialSection);
   }, [open, initialSection]);
-  const loadBasicConfiguration = useCallback(async () => {
-    const [obsidianResponse, modelsResponse, platformAuthResponse] = await Promise.all([
-      fetch(`${API_BASE}/api/settings/obsidian-wiki`),
-      fetch(`${API_BASE}/api/settings/models/retrieval`),
-      fetch(`${API_BASE}/api/settings/platform-auth`),
-    ]);
-    if (!obsidianResponse.ok || !modelsResponse.ok || !platformAuthResponse.ok) throw new Error('读取基础配置失败');
-    const wiki = await obsidianResponse.json();
-    const activeVault = (wiki.vaults || []).find((item) => item.id === wiki.active_vault_id);
-    setObsidian({ ...wiki, vault_id: wiki.active_vault_id || '', vault_name: activeVault?.name || '' });
-    setRetrievalModels(await modelsResponse.json());
-    setPlatformAuth(await platformAuthResponse.json());
+  const readMultimodal = useCallback(async () => {
+    const response = await fetch(`${API_BASE}/api/settings/models/multimodal`);
+    if (response.ok) return response.json();
+    if (window.desktopAPI?.getMultimodalModels) return window.desktopAPI.getMultimodalModels();
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.detail || '多模态模型读取失败');
   }, []);
+  const loadBasicConfiguration = useCallback(async () => {
+    const readJson = async (path, label) => {
+      const response = await fetch(`${API_BASE}${path}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || `${label}读取失败`);
+      return data;
+    };
+    const [wikiResult, retrievalResult, multimodalResult, platformResult] = await Promise.allSettled([
+      readJson('/api/settings/obsidian-wiki', 'Wiki 配置'),
+      readJson('/api/settings/models/retrieval', '本地检索模型'),
+      readMultimodal(),
+      readJson('/api/settings/platform-auth', '平台凭证'),
+    ]);
+    if (wikiResult.status === 'fulfilled') {
+      const wiki = wikiResult.value;
+      const activeVault = (wiki.vaults || []).find((item) => item.id === wiki.active_vault_id);
+      setObsidian({ ...wiki, vault_id: wiki.active_vault_id || '', vault_name: activeVault?.name || '' });
+    }
+    if (retrievalResult.status === 'fulfilled') {
+      setRetrievalModels(retrievalResult.value);
+      setRetrievalMessage('');
+    } else {
+      setRetrievalMessage(retrievalResult.reason?.message || '本地检索模型读取失败');
+    }
+    if (multimodalResult.status === 'fulfilled') {
+      setMultimodal(multimodalResult.value);
+      setMultimodalMessage('');
+    } else {
+      setMultimodalMessage('多模态服务尚未加载，请重启桌面端后重试。');
+    }
+    if (platformResult.status === 'fulfilled') setPlatformAuth(platformResult.value);
+  }, [readMultimodal]);
   useEffect(() => {
     if (!open || section !== 'basic') return;
-    loadBasicConfiguration().catch((error) => setRetrievalMessage(error.message));
+    loadBasicConfiguration();
   }, [open, section]);
   useEffect(() => {
     if (!open || section !== 'basic' || !['embedding', 'reranker'].includes(installingModel)) return undefined;
@@ -180,6 +302,15 @@ function Settings({ open, close, appearance, cardOpacity, theme, setTheme, initi
     }, 650);
     return () => window.clearInterval(timer);
   }, [open, section, installingModel]);
+  useEffect(() => {
+    if (!open || section !== 'basic' || !multimodalBusy.endsWith('-install')) return undefined;
+    const timer = window.setInterval(() => {
+      readMultimodal()
+        .then((value) => { if (value) setMultimodal(value); })
+        .catch(() => {});
+    }, 650);
+    return () => window.clearInterval(timer);
+  }, [open, section, multimodalBusy, readMultimodal]);
   const saveVault = async (draft = obsidian) => {
     if (!draft.vault_name?.trim() || !draft.vault_path?.trim()) { setObsidianMessage('请填写 Vault 名称和地址'); return false; }
     setObsidianMessage('正在保存…');
@@ -281,6 +412,28 @@ function Settings({ open, close, appearance, cardOpacity, theme, setTheme, initi
     } catch (error) { setRetrievalMessage(error.message); }
     finally { setInstallingModel(''); }
   };
+  const installMultimodalModel = async (kind) => {
+    const label = kind === 'ocr' ? 'OCR 引擎与语言模型' : 'Whisper small 模型';
+    setMultimodalBusy(`${kind}-install`); setMultimodalMessage(`正在下载并安装${label}，请保持网络连接…`);
+    try {
+      const response = await fetch(`${API_BASE}/api/settings/models/multimodal/${kind}/install`, { method: 'POST' });
+      const data = response.ok ? await response.json() : window.desktopAPI?.installMultimodalModel ? await window.desktopAPI.installMultimodalModel(kind) : await response.json().catch(() => ({}));
+      if (!response.ok && !window.desktopAPI?.installMultimodalModel) throw new Error(data.detail || `${label}安装失败`);
+      setMultimodal(data); setMultimodalMessage(`${label}已完整安装，可以离线使用。`);
+    } catch (error) { setMultimodalMessage(error.message); }
+    finally { setMultimodalBusy(''); }
+  };
+  const testMultimodalModel = async (kind) => {
+    const label = kind === 'ocr' ? 'OCR' : 'Whisper';
+    setMultimodalBusy(`${kind}-test`); setMultimodalMessage(`正在执行${label}本地离线测试…`);
+    try {
+      const response = await fetch(`${API_BASE}/api/settings/models/multimodal/${kind}/test`, { method: 'POST' });
+      const data = response.ok ? await response.json() : window.desktopAPI?.testMultimodalModel ? await window.desktopAPI.testMultimodalModel(kind) : await response.json().catch(() => ({}));
+      if (!response.ok && !window.desktopAPI?.testMultimodalModel) throw new Error(data.detail || `${label}测试失败`);
+      setMultimodal(data); setMultimodalMessage(data.test.message);
+    } catch (error) { setMultimodalMessage(error.message); }
+    finally { setMultimodalBusy(''); }
+  };
   const saveModels = async () => {
     setModelMessage('正在保存…');
     const response = await fetch(`${API_BASE}/api/settings/models`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider_id: modelDraft.providerId, name: modelDraft.name, provider: modelDraft.provider, api_key: modelDraft.apiKey, base_url: modelDraft.baseUrl, model: modelDraft.model }) });
@@ -316,6 +469,7 @@ function Settings({ open, close, appearance, cardOpacity, theme, setTheme, initi
       </div>}
       {section === 'basic' && <div className="model-settings-content basic-configuration"><div className="model-settings-intro"><div><strong>基础配置</strong><p>{setupFocus === 'models' ? '首次使用需先安装两个必要的本地检索模型。' : setupFocus === 'wiki' ? '加入笔记界面前，请创建 Wiki 并加载 Obsidian MCP。' : '管理本地检索模型与 Obsidian Wiki。'}</p></div><span>{retrievalModels.ready ? '模型已就绪' : '需要安装模型'}</span></div>
 <section className={`basic-setup-card ${setupFocus === 'models' ? 'required' : ''}`}><header><div><b>1</b><div><strong>本地检索模型</strong><p>当前版本固定使用以下两个模型，暂不启用降级策略。</p></div></div><span>{retrievalModels.ready ? '已完成' : '首次使用必需'}</span></header><div className="local-model-cards">{(retrievalModels.models || []).map((model) => { const isDownloading = installingModel === model.kind || model.downloading; const progress = Math.max(0, Math.min(100, Number(model.download_progress || 0) * 100)); return <article key={model.kind}><div className="local-model-copy"><strong>{model.kind === 'embedding' ? 'Embedding' : 'Reranker'}</strong><p>{model.model_id}</p><small style={{ display: 'block', overflowWrap: 'anywhere' }}>存储位置：{model.cache_directory}</small><small>{model.installed ? `已安装${model.size_bytes ? ` · ${(model.size_bytes / 1024 / 1024).toFixed(0)} MB` : ''}` : isDownloading ? '正在下载模型文件' : '尚未安装'}</small>{isDownloading && <div className="local-model-progress" role="progressbar" aria-label={`${model.model_id} 下载进度`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(progress)}><span style={{ width: `${progress}%` }}/></div>}</div><div className="local-model-actions"><button type="button" className="secondary" disabled={Boolean(installingModel)} onClick={() => testRetrievalModel(model.kind)}>{installingModel === `test-${model.kind}` ? '测试中…' : '测试模型'}</button><button type="button" disabled={model.installed || Boolean(installingModel)} onClick={() => installRetrievalModel(model.kind)}>{isDownloading ? '下载中…' : model.installed ? '已下载' : '下载并安装'}</button></div></article>; })}</div>{retrievalMessage && <p className="basic-setup-message">{retrievalMessage}</p>}</section>
+        <section className="basic-setup-card multimodal-setup-card"><header><div><b>2</b><div><strong>多模态处理</strong><p>完整安装图片文字识别与音视频语音转写所需的本地引擎和模型，安装后可离线使用。</p></div></div><span>{multimodal.ready ? '全部就绪' : '按需安装'}</span></header><div className="local-model-cards">{(multimodal.items || []).map((model) => { const isBusy = multimodalBusy.startsWith(model.kind) || model.downloading; const progress = Math.max(0, Math.min(100, Number(model.download_progress || 0) * 100)); return <article key={model.kind}><div className="local-model-copy"><strong>{model.name}</strong><p>{model.model_id}</p><small style={{ display:'block', overflowWrap:'anywhere' }}>存储位置：{model.directory}</small><small>{model.installed ? '完整安装，可离线使用' : isBusy ? (model.phase || '正在下载安装文件') : model.kind === 'ocr' ? '包含 Tesseract 引擎及中英文模型' : '包含 Whisper small 完整权重'}</small>{isBusy && <div className="local-model-progress" role="progressbar" aria-label={`${model.name} 下载进度`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(progress)}><span style={{ width:`${progress}%` }}/></div>}</div><div className="local-model-actions"><button type="button" className="secondary" disabled={Boolean(multimodalBusy) || !model.installed} onClick={() => testMultimodalModel(model.kind)}>{multimodalBusy === `${model.kind}-test` ? '测试中…' : '测试功能'}</button><button type="button" disabled={model.installed || Boolean(multimodalBusy)} onClick={() => installMultimodalModel(model.kind)}>{multimodalBusy === `${model.kind}-install` ? '安装中…' : model.installed ? '已完整安装' : '下载并安装'}</button></div></article>; })}</div>{multimodalMessage && <p className="basic-setup-message">{multimodalMessage}</p>}</section>
         <section className="basic-setup-card platform-auth-card"><header><div><b>2</b><div><strong>平台视频凭证</strong><p>导入浏览器导出的 cookies.txt，用于读取需要登录的抖音、B站等平台内容。</p></div></div><span>{platformAuth.configured ? '凭证可用' : '按需配置'}</span></header><div className="platform-auth-row"><div><strong>{platformAuth.configured ? '已保存登录凭证' : '尚未导入 Cookie 文件'}</strong><p>{platformAuth.message}</p>{platformAuth.configured && <small>{(platformAuth.domains || []).length ? `包含域名：${platformAuth.domains.join('、')}` : '已通过 Netscape 格式校验'}</small>}</div><div className="platform-auth-actions">{platformAuth.configured && <button type="button" className="secondary" disabled={platformAuthBusy} onClick={clearPlatformCookies}>清除</button>}<button type="button" disabled={platformAuthBusy} onClick={importPlatformCookies}>{platformAuthBusy ? '处理中…' : platformAuth.configured ? '刷新 Cookie' : '导入 Cookie'}</button></div></div>{platformAuthMessage && <p className="basic-setup-message">{platformAuthMessage}</p>}<p className="platform-auth-warning">凭证仅保存在本机 data/platform_auth，不会进入源码或发布压缩包。Cookie 失效后重新导出并点击“刷新 Cookie”即可。</p></section>
         <section className={`basic-setup-card obsidian-setup-card ${setupFocus === 'wiki' ? 'required' : ''}`}>
           <header><div><b>3</b><div><strong>Obsidian Wiki / MCP</strong><p>可创建并保存多个 Vault，启动前在这里选择当前使用地址。</p></div></div><span>{obsidian.connected ? `已验证 · ${obsidian.tool_count || 0} 工具` : '按需配置'}</span></header>
@@ -332,6 +486,10 @@ function Settings({ open, close, appearance, cardOpacity, theme, setTheme, initi
             {vaultDraft && <article className="vault-info-card vault-draft-card"><header><div><strong>新 Vault</strong><small>填写后保存</small></div></header><div className="vault-draft-fields"><label><span>名称</span><input value={vaultDraft.vault_name} onChange={(event) => setVaultDraft({ ...vaultDraft, vault_name: event.target.value })} placeholder="例如 工作知识库" /></label><label><span>目录</span><input value={vaultDraft.wiki_folder} onChange={(event) => setVaultDraft({ ...vaultDraft, wiki_folder: event.target.value })} placeholder="AgentWiki" /></label><label className="vault-path-field"><span>地址</span><div><input value={vaultDraft.vault_path} onChange={(event) => setVaultDraft({ ...vaultDraft, vault_path: event.target.value })} placeholder="例如 D:\\Notes\\MyWiki" /><button type="button" className="secondary" onClick={pickVaultDirectory}>选择本地文件夹</button></div></label></div><footer><button type="button" className="vault-cancel-button" onClick={() => setVaultDraft(null)}>取消</button><button type="button" className="vault-save-button" onClick={() => saveVault(vaultDraft)}>保存 Vault</button></footer></article>}
           </div>
           <div className="vault-action-footer"><button type="button" onClick={prepareNewVault} disabled={Boolean(vaultDraft)}>＋ 创建另一个 Vault</button><span>{obsidianMessage || obsidian.message || (obsidian.connected ? 'MCP 已连接' : '点击启用将自动下载并加载 Obsidian MCP')}</span></div>
+        </section>
+        <section className="basic-setup-card optional-features-card">
+          <header><div><b>4</b><div><strong>额外功能</strong></div></div><span>按需配置</span></header>
+          <div className="optional-feature-row"><div><strong>项目解析</strong><p>启用代码项目导入、分析和项目图谱入口。</p></div><span className="optional-feature-object">关联物品：电脑</span><button type="button" className={projectAnalysisEnabled ? 'enabled' : ''} aria-pressed={projectAnalysisEnabled} onClick={onToggleProjectAnalysis}>{projectAnalysisEnabled ? '已启用' : '启用功能'}</button></div>
         </section>
       </div>}
       {section === 'watchers' && <WatcherSettings/>}
@@ -485,7 +643,7 @@ function EditableDashboardCanvas({ mode, children }) {
   </div>;
 }
 
-function HomeDashboard({ apiBase }) {
+function HomeDashboard({ apiBase, preview = false }) {
   const [data, setData] = useState({ watchers: [], historyWatchers: [], notes: {}, wiki: {}, wikiStats: {}, maintenance: {}, conflicts: [], workspace: { topics: [], slots: [] } });
   const [dashboardMode, setDashboardMode] = useState('memory');
   const [detailOpen, setDetailOpen] = useState(false);
@@ -617,7 +775,7 @@ function HomeDashboard({ apiBase }) {
   };
   const showMemory = () => { setDashboardMode('memory'); setDetailOpen(false); };
   const showWiki = () => { setDashboardMode('wiki'); setDetailOpen(false); };
-  return <section className="home-dashboard home-dashboard-v2">
+  return <section className={`home-dashboard home-dashboard-v2 ${preview ? 'home-dashboard-preview' : ''}`}>
     <header className="dashboard-switch-header" aria-label="仪表盘内容切换">
       <button type="button" className={dashboardMode === 'memory' ? 'active' : ''} onClick={showMemory}>记忆</button>
       <button type="button" className={dashboardMode === 'wiki' ? 'active' : ''} onClick={showWiki}>WIKI</button>
@@ -661,8 +819,7 @@ function HomeDashboard({ apiBase }) {
 }
 
 export default function AppEnhanced() {
-  const [view, setView] = useState('chat');
-  const [graphOpen, setGraphOpen] = useState(false);
+  const [view, setView] = useState('home');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState('general');
   const [setupFocus, setSetupFocus] = useState('');
@@ -670,7 +827,6 @@ export default function AppEnhanced() {
   const [updateInfo, setUpdateInfo] = useState(null);
   const [updateNoticeOpen, setUpdateNoticeOpen] = useState(true);
   const [updateDetailOpen, setUpdateDetailOpen] = useState(false);
-  const [featureMenuOpen, setFeatureMenuOpen] = useState(false);
   const [enabledFeatures, setEnabledFeatures] = useState(() => {
     try { return [...new Set(['notes', ...JSON.parse(localStorage.getItem('personal-agent:enabled-features') || '[]')])]; }
     catch { return ['notes']; }
@@ -680,6 +836,7 @@ export default function AppEnhanced() {
   const appearance = useWorkspaceAppearance();
   const cardOpacity = useCardOpacity();
   const wallpaperView = ['chat', 'learning', 'code'].includes(view);
+  const graphView = view.endsWith('-graph');
   useEffect(() => { localStorage.setItem('personal-agent:surface-theme-v2', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('personal-agent:enabled-features', JSON.stringify(enabledFeatures)); }, [enabledFeatures]);
   useEffect(() => {
@@ -703,51 +860,42 @@ export default function AppEnhanced() {
         const response = await fetch(`${API_BASE}/api/settings/obsidian-wiki`);
         const config = response.ok ? await response.json() : {};
         if (!config.connected) {
-          setSettingsSection('basic'); setSetupFocus('wiki'); setSettingsOpen(true); setFeatureMenuOpen(false);
+          setSettingsSection('basic'); setSetupFocus('wiki'); setSettingsOpen(true);
           return;
         }
       } catch { setSettingsSection('basic'); setSetupFocus('wiki'); setSettingsOpen(true); return; }
     }
     setEnabledFeatures((current) => current.includes(feature) ? current : [...current, feature]);
-    setFeatureMenuOpen(false);
   };
   const openSettings = () => { setSettingsSection('general'); setSetupFocus(''); setSettingsOpen(true); };
-  const navigate = (next) => { setView(next); if (!next.endsWith('-graph')) setGraphOpen(false); };
-  const graph = () => { setGraphOpen((value) => !value); if (!view.endsWith('-graph')) setView('memory-graph'); };
+  const navigate = (next) => setView(next);
+  const toggleProjectAnalysis = () => setEnabledFeatures((current) => current.includes('projects') ? current.filter((item) => item !== 'projects') : [...current, 'projects']);
   const openLibraryDocument = (documentId) => {
     setLibraryOpenRequest({ documentId, requestId: Date.now() });
     setView('learning');
-    setGraphOpen(false);
   };
   const openLibraryNote = (filename) => {
     setLibraryOpenRequest({ filename, requestId: Date.now() });
     setView('learning');
-    setGraphOpen(false);
   };
   const openWikiPage = (pageId) => {
     setLibraryOpenRequest({ pageId, requestId: Date.now() });
     setView('learning');
-    setGraphOpen(false);
   };
-  return <div data-ui-theme={theme} className={`app-shell enhanced-shell view-${view} ${wallpaperView ? 'wallpaper-view' : 'graph-view'} ${appearance.config.enabled && appearance.asset ? 'wallpaper-enabled' : 'wallpaper-disabled'}`} style={{ '--workspace-glass-blur': `${appearance.config.glass}px`, '--workspace-border-alpha': appearance.config.border / 100, '--dashboard-glass-blur': `${cardOpacity.values.dashboardGlass ?? 22}px`, '--chat-glass-blur': `${cardOpacity.values.chatGlass ?? 18}px`, '--note-glass-blur': `${cardOpacity.values.noteGlass ?? 6}px`, '--code-glass-blur': `${cardOpacity.values.codeGlass ?? 8}px`, '--star-brief-glass-blur': `${cardOpacity.values.starBriefGlass ?? 8}px`, '--star-source-glass-blur': `${cardOpacity.values.starSourceGlass ?? 10}px`, '--card-opacity-chat': (100 - (cardOpacity.values.chat ?? 35)) / 100, '--card-opacity-dashboard': (100 - cardOpacity.values.dashboard) / 100, '--card-opacity-note': (100 - cardOpacity.values.note) / 100, '--card-opacity-code': (100 - cardOpacity.values.code) / 100, '--card-opacity-star-brief': (100 - cardOpacity.values.starBrief) / 100, '--card-opacity-star-source': (100 - cardOpacity.values.starSource) / 100 }}>
-    <nav className="app-nav-frame" aria-label="功能导航"><div className="app-nav-primary">
-      <button className={`app-nav-cell ${view === 'chat' ? 'active' : ''}`} data-tooltip="仪表盘" onClick={() => navigate('chat')}><Icon type="chat"/></button>
-      <button className={`app-nav-cell ${view === 'learning' ? 'active' : ''}`} data-tooltip="笔记与文档" onClick={() => navigate('learning')}><Icon type="notes"/></button>
-      {enabledFeatures.includes('projects') && <button className={`app-nav-cell ${view === 'code' ? 'active' : ''}`} data-tooltip="代码项目" onClick={() => navigate('code')}><Icon type="code"/></button>}
-      <div className={`app-nav-group app-graph-nav-group ${graphOpen ? 'open' : ''}`}><button className={`app-nav-cell ${view.endsWith('-graph') ? 'active' : ''}`} data-tooltip="知识图谱" onClick={graph}><Icon type="graph"/></button><div className="app-nav-submenu">
-        <button className={`app-nav-subcell ${view === 'memory-graph' ? 'active' : ''}`} data-tooltip="记忆图谱" onClick={() => setView('memory-graph')}><Icon type="memory"/></button>
-        <button className={`app-nav-subcell ${view === 'note-graph' ? 'active' : ''}`} data-tooltip="笔记图谱" onClick={() => setView('note-graph')}><Icon type="noteGraph"/></button>
-        {enabledFeatures.includes('projects') && <button className={`app-nav-subcell ${view === 'project-graph' ? 'active' : ''}`} data-tooltip="项目图谱" onClick={() => setView('project-graph')}><Icon type="projectGraph"/></button>}
-      </div></div>
-      <div className="app-feature-add"><button className={`app-nav-cell ${featureMenuOpen ? 'active' : ''}`} data-tooltip="添加界面" onClick={() => setFeatureMenuOpen((value) => !value)}>+</button>{featureMenuOpen && <div className="app-feature-menu">
-        {[['projects', '代码项目', 'code']].map(([id, label, icon]) => <div key={id}><span><Icon type={icon}/>{label}</span><button disabled={enabledFeatures.includes(id)} onClick={() => addFeature(id)}>{enabledFeatures.includes(id) ? '已加入' : '加入'}</button></div>)}
-      </div>}</div>
-    </div><div className="app-settings-anchor">{updateInfo && updateNoticeOpen ? <aside className="app-update-notice" role="status"><button type="button" className="app-update-close" aria-label="关闭更新提示" onClick={() => setUpdateNoticeOpen(false)}>×</button><span>有更新</span><strong>{updateInfo.latestVersion}</strong><button type="button" className="app-update-link" onClick={() => setUpdateDetailOpen(true)}>查看更新</button></aside> : null}{updateDetailOpen && updateInfo ? <div className="app-update-detail-backdrop" onMouseDown={() => setUpdateDetailOpen(false)}><section className="app-update-detail" onMouseDown={(event) => event.stopPropagation()}><button type="button" className="app-update-detail-close" aria-label="关闭" onClick={() => setUpdateDetailOpen(false)}>×</button><span>KnowNexus 更新</span><h2>{updateInfo.releaseName || `版本 ${updateInfo.latestVersion}`}</h2><div className="app-update-version"><b>v{updateInfo.currentVersion}</b><i>→</i><strong>v{updateInfo.latestVersion}</strong></div>{updateInfo.releaseNotes ? <p>{updateInfo.releaseNotes}</p> : <p>发现新版本。下载后解压覆盖程序文件即可，个人数据仍保存在独立的数据目录中。</p>}<footer><small>{updateInfo.assetName}{updateInfo.assetSize ? ` · ${(updateInfo.assetSize / 1048576).toFixed(1)} MB` : ''}</small><button type="button" onClick={() => window.desktopAPI?.openUpdatePage?.(updateInfo.assetUrl || updateInfo.releaseUrl)}>下载更新</button></footer></section></div> : null}<button className={`app-nav-cell app-settings-button ${updateInfo ? 'has-update' : ''}`} data-tooltip={updateInfo ? `有更新：${updateInfo.latestVersion}` : '设置'} onClick={openSettings}><Icon type="settings"/><i className="app-update-dot" aria-hidden="true"/></button></div></nav>
+  return <div data-ui-theme={theme} className={`app-shell enhanced-shell desk-shell view-${view} ${wallpaperView ? 'wallpaper-view' : graphView ? 'graph-view' : 'desk-view'} ${appearance.config.enabled && appearance.asset ? 'wallpaper-enabled' : 'wallpaper-disabled'}`} style={{ '--workspace-glass-blur': `${appearance.config.glass}px`, '--workspace-border-alpha': appearance.config.border / 100, '--dashboard-glass-blur': `${cardOpacity.values.dashboardGlass ?? 22}px`, '--chat-glass-blur': `${cardOpacity.values.chatGlass ?? 18}px`, '--note-glass-blur': `${cardOpacity.values.noteGlass ?? 6}px`, '--code-glass-blur': `${cardOpacity.values.codeGlass ?? 8}px`, '--star-brief-glass-blur': `${cardOpacity.values.starBriefGlass ?? 8}px`, '--star-source-glass-blur': `${cardOpacity.values.starSourceGlass ?? 10}px`, '--card-opacity-chat': (100 - (cardOpacity.values.chat ?? 35)) / 100, '--card-opacity-dashboard': (100 - cardOpacity.values.dashboard) / 100, '--card-opacity-note': (100 - cardOpacity.values.note) / 100, '--card-opacity-code': (100 - cardOpacity.values.code) / 100, '--card-opacity-star-brief': (100 - cardOpacity.values.starBrief) / 100, '--card-opacity-star-source': (100 - cardOpacity.values.starSource) / 100 }}>
+    {view !== 'home' && <button type="button" className="desk-back-home" aria-label="返回动态书桌" onClick={() => navigate('home')}>返回</button>}
+    {graphView && <nav className="desk-graph-tools" aria-label="知识图谱切换">
+      <button className={view === 'memory-graph' ? 'active' : ''} data-tooltip="记忆图谱" onClick={() => setView('memory-graph')}><Icon type="memory"/></button>
+      <button className={view === 'note-graph' ? 'active' : ''} data-tooltip="笔记图谱" onClick={() => setView('note-graph')}><Icon type="noteGraph"/></button>
+      {enabledFeatures.includes('projects') && <button className={view === 'project-graph' ? 'active' : ''} data-tooltip="项目图谱" onClick={() => setView('project-graph')}><Icon type="projectGraph"/></button>}
+    </nav>}
+    <div className="app-settings-anchor desk-settings-anchor">{updateInfo && updateNoticeOpen ? <aside className="app-update-notice" role="status"><button type="button" className="app-update-close" aria-label="关闭更新提示" onClick={() => setUpdateNoticeOpen(false)}>×</button><span>有更新</span><strong>{updateInfo.latestVersion}</strong><button type="button" className="app-update-link" onClick={() => setUpdateDetailOpen(true)}>查看更新</button></aside> : null}{updateDetailOpen && updateInfo ? <div className="app-update-detail-backdrop" onMouseDown={() => setUpdateDetailOpen(false)}><section className="app-update-detail" onMouseDown={(event) => event.stopPropagation()}><button type="button" className="app-update-detail-close" aria-label="关闭" onClick={() => setUpdateDetailOpen(false)}>×</button><span>KnowNexus 更新</span><h2>{updateInfo.releaseName || `版本 ${updateInfo.latestVersion}`}</h2><div className="app-update-version"><b>v{updateInfo.currentVersion}</b><i>→</i><strong>v{updateInfo.latestVersion}</strong></div>{updateInfo.releaseNotes ? <p>{updateInfo.releaseNotes}</p> : <p>发现新版本。下载后解压覆盖程序文件即可，个人数据仍保存在独立的数据目录中。</p>}<footer><small>{updateInfo.assetName}{updateInfo.assetSize ? ` · ${(updateInfo.assetSize / 1048576).toFixed(1)} MB` : ''}</small><button type="button" onClick={() => window.desktopAPI?.openUpdatePage?.(updateInfo.assetUrl || updateInfo.releaseUrl)}>下载更新</button></footer></section></div> : null}<button className={`app-nav-cell app-settings-button ${updateInfo ? 'has-update' : ''}`} data-tooltip={updateInfo ? `有更新：${updateInfo.latestVersion}` : '设置'} onClick={openSettings}><Icon type="settings"/><i className="app-update-dot" aria-hidden="true"/></button></div>
     <main className="app-page-frame">
       <div className={`workspace-backdrop-host ${wallpaperView ? 'visible' : 'graph-hidden'}`}>
         <WorkspaceBackdrop asset={appearance.asset} config={appearance.config}/>
       </div>
       <div className="app-page-content">
+      {view === 'home' && <DeskHome codeEnabled={enabledFeatures.includes('projects')} navigate={navigate}/>}
       <div className={`app-persistent-chat ${view === 'chat' ? 'active' : ''}`}><HomeDashboard apiBase={API_BASE}/></div>
       {view === 'memory-graph' && <StarfieldApp apiBase={API_BASE} graphEndpoint="/api/graphs/memory" graphDomain="memory" title="记忆图谱" directoryTitle="记忆时间线" simpleMode memoryOriginSelector/>}
       {view === 'note-graph' && <StarfieldApp apiBase={API_BASE} graphEndpoint="/api/graphs/notes" graphDomain="note" title="笔记图谱" directoryTitle="笔记目录" simpleMode directoryMode="notes" onOpenLibraryDocument={openLibraryDocument} onOpenLibraryNote={openLibraryNote} onOpenWikiPage={openWikiPage}/>}
@@ -756,6 +904,6 @@ export default function AppEnhanced() {
       {view === 'code' && <CodeInsightPage apiBase={`${API_BASE}/api/library/code-projects`} agentApi={`${API_BASE}/api/agent/chat`}/>} 
     </div></main>
     {modelSetupPrompt && <div className="model-setup-prompt-backdrop" onMouseDown={() => setModelSetupPrompt(false)}><section className="model-setup-prompt" onMouseDown={(event) => event.stopPropagation()}><span>必要配置</span><h2>本地检索模型尚未就绪</h2><p>Embedding 与 Reranker 用于本地知识检索和排序。你可以现在安装，也可以关闭提示后稍后在“设置 → 基础配置”中处理。</p><div><button type="button" className="secondary" onClick={() => setModelSetupPrompt(false)}>暂时关闭</button><button type="button" onClick={() => { setModelSetupPrompt(false); setSettingsSection('basic'); setSetupFocus('models'); setSettingsOpen(true); }}>去配置</button></div></section></div>}
-    <Dashboard apiBase={API_BASE}/><Settings open={settingsOpen} close={() => setSettingsOpen(false)} appearance={appearance} cardOpacity={cardOpacity} theme={theme} setTheme={setTheme} initialSection={settingsSection} setupFocus={setupFocus} onWikiReady={() => { setEnabledFeatures((current) => current.includes('notes') ? current : [...current, 'notes']); setSetupFocus(''); }}/><DesktopWindowControls/>
+    <Dashboard apiBase={API_BASE}/><Settings open={settingsOpen} close={() => setSettingsOpen(false)} appearance={appearance} cardOpacity={cardOpacity} theme={theme} setTheme={setTheme} initialSection={settingsSection} setupFocus={setupFocus} projectAnalysisEnabled={enabledFeatures.includes('projects')} onToggleProjectAnalysis={toggleProjectAnalysis} onWikiReady={() => { setEnabledFeatures((current) => current.includes('notes') ? current : [...current, 'notes']); setSetupFocus(''); }}/><DesktopWindowControls/>
   </div>;
 }

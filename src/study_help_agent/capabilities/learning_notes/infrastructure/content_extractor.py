@@ -34,9 +34,16 @@ for _thread_env in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"
 def _configure_tesseract(pytesseract: Any) -> None:
     """Point pytesseract at the OCR engine bundled by the portable build."""
 
+    from study_help_agent.core.config import get_settings
+    models_root = get_settings().rag_model_cache_directory.parents[1]
+    runtime = models_root / "ocr" / "tesseract"
     command = os.getenv("TESSERACT_CMD", "").strip()
+    if not command and (runtime / "tesseract.exe").is_file():
+        command = str(runtime / "tesseract.exe")
     if command:
         pytesseract.pytesseract.tesseract_cmd = command
+    if not os.getenv("TESSDATA_PREFIX") and (runtime / "tessdata").is_dir():
+        os.environ["TESSDATA_PREFIX"] = str(runtime / "tessdata")
 
 
 class MultiFormatLearningContentExtractor:
@@ -293,6 +300,12 @@ class MultiFormatLearningContentExtractor:
             raise RuntimeError(
                 "音视频转写需要安装：pip install -e .[learning-media]"
             ) from error
+        configured_model = self._whisper_model
+        if configured_model == "small":
+            from study_help_agent.core.config import get_settings
+            downloaded = get_settings().rag_model_cache_directory.parents[1] / "whisper-small"
+            if (downloaded / "model.bin").is_file():
+                configured_model = str(downloaded)
         requested = self._whisper_device
         if requested == "auto":
             try:
@@ -305,7 +318,8 @@ class MultiFormatLearningContentExtractor:
             compute_type = "float16" if requested == "cuda" else "int8"
         try:
             model = WhisperModel(
-                self._whisper_model, device=requested, compute_type=compute_type
+                configured_model, device=requested, compute_type=compute_type,
+                local_files_only=Path(configured_model).is_dir(),
             )
             self._resolved_whisper_device = requested
             return model
@@ -313,7 +327,10 @@ class MultiFormatLearningContentExtractor:
             if requested != "cuda" or self._whisper_device == "cuda":
                 raise
             self._resolved_whisper_device = "cpu"
-            return WhisperModel(self._whisper_model, device="cpu", compute_type="int8")
+            return WhisperModel(
+                configured_model, device="cpu", compute_type="int8",
+                local_files_only=Path(configured_model).is_dir(),
+            )
 
     def _transcribe_audio(
         self,
